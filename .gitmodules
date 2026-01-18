@@ -1,0 +1,9 @@
+[submodule "visualizator"]
+	path = visualizator
+	url = git@github.com:fiuba-tp-g153-smn/visualizator.git
+[submodule "data-service"]
+	path = data-service
+	url = git@github.com:fiuba-tp-g153-smn/data-service.git
+[submodule "tiles-processor"]
+	path = tiles-processor
+	url = git@github.com:fiuba-tp-g153-smn/tiles-processor.git
