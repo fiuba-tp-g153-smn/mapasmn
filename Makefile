@@ -1,6 +1,6 @@
 # Root Makefile for orchestrating all services
 
-SERVICES = data-service tiles-processor visualizator
+SERVICES = data-service tiles-processor visualizer
 
 .PHONY: up down prod $(SERVICES)
 
@@ -31,5 +31,5 @@ data-service:
 tiles-processor:
 	$(MAKE) -C tiles-processor up
 
-visualizator:
-	$(MAKE) -C visualizator up
+visualizer:
+	$(MAKE) -C visualizer up

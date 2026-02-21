@@ -1,6 +1,6 @@
-[submodule "visualizator"]
-	path = visualizator
-	url = git@github.com:fiuba-tp-g153-smn/visualizator.git
+[submodule "visualizer"]
+	path = visualizer
+	url = git@github.com:fiuba-tp-g153-smn/visualizer.git
 [submodule "data-service"]
 	path = data-service
 	url = git@github.com:fiuba-tp-g153-smn/data-service.git
