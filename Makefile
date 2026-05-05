@@ -1,10 +1,14 @@
 # Root Makefile for orchestrating all services
 
-SERVICES = data-service tiles-processor visualizer
+SERVICES = data-service tiles-processor visualizer alerts-service
 
-.PHONY: up down prod $(SERVICES)
+.PHONY: setup up down prod $(SERVICES)
 
-up:
+setup:
+	@git submodule update --init --recursive
+	@./scripts/setup-env.sh
+
+up: setup
 	@for service in $(SERVICES); do \
 		echo "Starting $$service..."; \
 		$(MAKE) -C $$service up & \
@@ -17,7 +21,7 @@ down:
 		$(MAKE) -C $$service down; \
 	done
 
-prod:
+prod: setup
 	@for service in $(SERVICES); do \
 		echo "Starting $$service (prod)..."; \
 		$(MAKE) -C $$service prod & \
@@ -33,3 +37,6 @@ tiles-processor:
 
 visualizer:
 	$(MAKE) -C visualizer up
+
+alerts-service:
+	$(MAKE) -C alerts-service up
