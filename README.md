@@ -9,7 +9,6 @@ Meta-repositorio que agrupa todos los servicios del proyecto mapasmn como submó
 - [Servicios y puertos](#servicios-y-puertos)
 - [Contenedores y puertos detallados](#contenedores-y-puertos-detallados)
   - [Resumen de puertos del host](#resumen-de-puertos-del-host)
-  - [Detalle fino por submódulo](#detalle-fino-por-submódulo)
 - [Prerrequisitos](#prerrequisitos)
   - [Instalación de `envsubst`](#instalación-de-envsubst)
 - [Inicio rápido — con `make` (recomendado)](#inicio-rápido--con-make-recomendado)
@@ -28,6 +27,11 @@ Meta-repositorio que agrupa todos los servicios del proyecto mapasmn como submó
   - [tiles-processor — workers](#tiles-processor--workers)
   - [visualizer](#visualizer)
 - [Configuración avanzada por submódulo](#configuración-avanzada-por-submódulo)
+- [Detalle fino por submódulo](#detalle-fino-por-submódulo)
+  - [tiles-processor (4 contenedores)](#tiles-processor-4-contenedores)
+  - [data-service (2 contenedores)](#data-service-2-contenedores)
+  - [alerts-service (2 contenedores)](#alerts-service-2-contenedores)
+  - [visualizer (2 contenedores)](#visualizer-2-contenedores)
 
 ## ¿Qué es este repo?
 
@@ -77,84 +81,6 @@ Estado en vivo de todos los servicios: <https://uptime.mapasmn.com/status/smn>
 | `23646` | `tiles-processor-seaweedfs` | SeaweedFS Admin |
 
 Si alguno de estos puertos colisiona con algo que ya tenés en el host, cambialo en el `.env` raíz: `${RABBITMQ_PORT}`, `${RABBITMQ_MGMT_PORT}`, `${S3_TILES_DATA_PORT}`, los `*_APP_HOST_PORT` y `${DOCS_HOST_PORT}` son configurables. Los puertos `3306`, `8888`, `9333` y `23646` están hardcodeados en los compose de los submódulos.
-
-### Detalle fino por submódulo
-
-#### tiles-processor (4 contenedores)
-
-**`tiles-processor-rabbitmq`** — imagen `rabbitmq:4.2.4-management`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${RABBITMQ_PORT}` (`5672`) | `5672` | Protocolo AMQP — los workers/producer se conectan acá |
-| `${RABBITMQ_MGMT_PORT}` (`15672`) | `15672` | UI web de management (login: `tiles_processor` / `devpassword`) |
-
-**`tiles-processor-seaweedfs`** — imagen `chrislusf/seaweedfs:4.20`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${S3_TILES_DATA_PORT}` (`9000`) | `8333` | API S3 — lo consumen `data-service` y `alerts-service` |
-| `8888` | `8888` | Filer (TTL por archivo, navegación HTTP) |
-| `9333` | `9333` | Master (cluster status, healthcheck) |
-| `23646` | `23646` | UI de administración de SeaweedFS |
-
-**`tiles-processor-producer`** — imagen local `tiles-processor` (build de `tiles-processor/Dockerfile`)
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| *(sin puerto en el host)* | `8080` | Endpoint `/health` interno (lo usa el healthcheck del contenedor) |
-
-Job programado (cron + APScheduler) que descubre imágenes nuevas en NOAA S3 y publica trabajos a RabbitMQ.
-
-**`tiles-processor-worker1`** y **`tiles-processor-worker2`** — imagen local `tiles-processor` (misma que producer, distinto comando)
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| *(sin puerto en el host)* | `8080` | Endpoint `/health` interno |
-
-Consumen unidades de trabajo de RabbitMQ (`prefetch=1`, ack manual) y procesan tiles. La cantidad de workers está fija en 2 en este compose; se puede regenerar con [`tiles-processor/scripts/generate-compose.sh`](./tiles-processor/scripts/generate-compose.sh).
-
-#### data-service (2 contenedores)
-
-**`data-service-redis-dev`** — imagen `redis:8.6-alpine`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| *(sin puerto en el host)* | `6379` | Redis — sólo accesible vía la red Compose como `redis:6379` |
-
-**`data-service-container`** — imagen local `data-service`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${APP_HOST_PORT}` (`6006`, controlado por `DATA_SERVICE_APP_HOST_PORT`) | `8080` | API FastAPI (docs en `/docs`) |
-
-#### alerts-service (2 contenedores)
-
-**`alerts-mysql`** — imagen `mysql:8.4`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `3306` | `3306` | MySQL — accesible desde el host (cliente externo) y desde la red Compose como `mysql:3306` |
-
-**`alerts-service-container`** — imagen local `alerts-service`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${APP_HOST_PORT}` (`6007`, controlado por `ALERTS_SERVICE_APP_HOST_PORT`) | `8080` | API FastAPI (docs en `/docs`) |
-
-#### visualizer (2 contenedores)
-
-**`docs-service-container`** — imagen local `mapasmn-docs-service` (build de `visualizer/docs-service/Dockerfile`)
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${DOCS_HOST_PORT}` (`6011`) | `80` | Sitio Docusaurus servido por nginx |
-
-**`visualizer-container`** — imagen local `visualizer`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${APP_HOST_PORT}` (`6010`, controlado por `VISUALIZER_APP_HOST_PORT`) | `80` | Frontend Angular servido por nginx |
 
 ## Prerrequisitos
 
@@ -376,3 +302,81 @@ El `.env` raíz expone los parámetros que necesitás cambiar para correr el sta
 | [`visualizer`](./visualizer) | Configuración de Angular en `visualizer/src/environments/`, definición de capas en `visualizer/src/app/config/layers/` | [`visualizer/README.md`](./visualizer/README.md), [`visualizer/CLAUDE.md`](./visualizer/CLAUDE.md) |
 
 Para detalles de cada submódulo, leé el `README.md` y el `CLAUDE.md` que viven dentro suyo.
+
+## Detalle fino por submódulo
+
+### tiles-processor (4 contenedores)
+
+**`tiles-processor-rabbitmq`** — imagen `rabbitmq:4.2.4-management`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `${RABBITMQ_PORT}` (`5672`) | `5672` | Protocolo AMQP — los workers/producer se conectan acá |
+| `${RABBITMQ_MGMT_PORT}` (`15672`) | `15672` | UI web de management (login: `tiles_processor` / `devpassword`) |
+
+**`tiles-processor-seaweedfs`** — imagen `chrislusf/seaweedfs:4.20`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `${S3_TILES_DATA_PORT}` (`9000`) | `8333` | API S3 — lo consumen `data-service` y `alerts-service` |
+| `8888` | `8888` | Filer (TTL por archivo, navegación HTTP) |
+| `9333` | `9333` | Master (cluster status, healthcheck) |
+| `23646` | `23646` | UI de administración de SeaweedFS |
+
+**`tiles-processor-producer`** — imagen local `tiles-processor` (build de `tiles-processor/Dockerfile`)
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| *(sin puerto en el host)* | `8080` | Endpoint `/health` interno (lo usa el healthcheck del contenedor) |
+
+Job programado (cron + APScheduler) que descubre imágenes nuevas en NOAA S3 y publica trabajos a RabbitMQ.
+
+**`tiles-processor-worker1`** y **`tiles-processor-worker2`** — imagen local `tiles-processor` (misma que producer, distinto comando)
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| *(sin puerto en el host)* | `8080` | Endpoint `/health` interno |
+
+Consumen unidades de trabajo de RabbitMQ (`prefetch=1`, ack manual) y procesan tiles. La cantidad de workers está fija en 2 en este compose; se puede regenerar con [`tiles-processor/scripts/generate-compose.sh`](./tiles-processor/scripts/generate-compose.sh).
+
+### data-service (2 contenedores)
+
+**`data-service-redis-dev`** — imagen `redis:8.6-alpine`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| *(sin puerto en el host)* | `6379` | Redis — sólo accesible vía la red Compose como `redis:6379` |
+
+**`data-service-container`** — imagen local `data-service`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `${APP_HOST_PORT}` (`6006`, controlado por `DATA_SERVICE_APP_HOST_PORT`) | `8080` | API FastAPI (docs en `/docs`) |
+
+### alerts-service (2 contenedores)
+
+**`alerts-mysql`** — imagen `mysql:8.4`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `3306` | `3306` | MySQL — accesible desde el host (cliente externo) y desde la red Compose como `mysql:3306` |
+
+**`alerts-service-container`** — imagen local `alerts-service`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `${APP_HOST_PORT}` (`6007`, controlado por `ALERTS_SERVICE_APP_HOST_PORT`) | `8080` | API FastAPI (docs en `/docs`) |
+
+### visualizer (2 contenedores)
+
+**`docs-service-container`** — imagen local `mapasmn-docs-service` (build de `visualizer/docs-service/Dockerfile`)
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `${DOCS_HOST_PORT}` (`6011`) | `80` | Sitio Docusaurus servido por nginx |
+
+**`visualizer-container`** — imagen local `visualizer`
+
+| Host | → Contenedor | Descripción |
+|---|---|---|
+| `${APP_HOST_PORT}` (`6010`, controlado por `VISUALIZER_APP_HOST_PORT`) | `80` | Frontend Angular servido por nginx |
