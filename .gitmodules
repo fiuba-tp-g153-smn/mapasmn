@@ -1,12 +1,16 @@
 [submodule "data-service"]
 	path = data-service
 	url = git@github.com:fiuba-tp-g153-smn/data-service.git
+	branch = main
 [submodule "tiles-processor"]
 	path = tiles-processor
 	url = git@github.com:fiuba-tp-g153-smn/tiles-processor.git
+	branch = main
 [submodule "alerts-service"]
 	path = alerts-service
 	url = git@github.com:fiuba-tp-g153-smn/alerts-service.git
+	branch = main
 [submodule "visualizer"]
 	path = visualizer
 	url = git@github.com:fiuba-tp-g153-smn/visualizer.git
+	branch = main
