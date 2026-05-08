@@ -13,6 +13,7 @@ Meta-repositorio que agrupa todos los servicios del proyecto mapasmn como submó
   - [Instalación de `envsubst`](#instalación-de-envsubst)
 - [Inicio rápido — con `make` (recomendado)](#inicio-rápido--con-make-recomendado)
 - [Inicio rápido — sin `make` (sólo `docker compose`)](#inicio-rápido--sin-make-sólo-docker-compose)
+- [Datos de radar](#datos-de-radar)
 - [Cómo funciona](#cómo-funciona)
 - [Personalizar credenciales y puertos](#personalizar-credenciales-y-puertos)
 - [URLs de los servicios después de levantar](#urls-de-los-servicios-después-de-levantar)
@@ -111,6 +112,7 @@ docker compose version
 ```sh
 git clone --recurse-submodules git@github.com:fiuba-tp-g153-smn/mapasmn.git
 cd mapasmn
+make fetch-radar URL=<google-drive-share-url>
 make prod
 ```
 
@@ -137,7 +139,10 @@ cd mapasmn
 docker network inspect data_service_network >/dev/null 2>&1 \
     || docker network create data_service_network
 
-# 4. Levantar todo
+# 4. Bajar el dataset de radar al volumen mapasmn_tiles_data
+./scripts/fetch-radar.sh <google-drive-share-url>
+
+# 5. Levantar todo
 docker compose up --build
 ```
 
@@ -145,11 +150,51 @@ Equivalentes sin `make` para el resto de las operaciones:
 
 | Operación | Con `make` | Sin `make` |
 |---|---|---|
-| Levantar | `make prod` | Pasos 1–4 de arriba |
+| Levantar | `make prod` | Pasos 1–5 de arriba |
 | Bajar (preserva volúmenes) | `make down` | `docker compose down --remove-orphans` |
 | Reset total (borra volúmenes) | `make clean` | `docker compose down --remove-orphans --volumes && docker network rm data_service_network` |
 | Actualizar submódulos | `make update` | `git submodule update --init --recursive --remote` |
 | Regenerar `.env` | `make setup` | `./scripts/setup-env.sh` |
+| Bajar dataset de radar | `make fetch-radar URL=<drive-url>` | `./scripts/fetch-radar.sh <drive-url>` |
+
+## Datos de radar
+
+El pipeline de tiles-processor consume un dataset de archivos `.H5` (uno por radar / variable / instante) que se distribuye por Google Drive — es parte del setup.
+
+El dataset pesa ~4 GB sin comprimir, así que **no se versiona en el repo**.
+
+### Bajar y conectar el dataset
+
+Una vez que tenés la URL de Google Drive del zip:
+
+```sh
+make fetch-radar URL=https://drive.google.com/file/d/<file-id>/view
+```
+
+Esto levanta un contenedor `python:3.12-slim` efímero que corre `gdown`, deja el zip cacheado en `./.cache/radar_h5.zip` y luego lo descomprime dentro del **docker volume** `mapasmn_tiles_data` (que el compose de prod monta como `/app/data` en el producer y los workers). Sólo requiere Docker en el host — sin instalación de `gdown`, `unzip` ni nada de Python local. Tras la descarga, el sistema queda listo para `make prod`.
+
+El script es idempotente: si `./.cache/radar_h5.zip` ya existe, salta la descarga y vuelve a extraer al volumen. Para forzar una descarga fresca, borrá el archivo cacheado:
+
+```sh
+rm .cache/radar_h5.zip
+```
+
+Si el stack ya está corriendo cuando ejecutás `make fetch-radar`, reiniciá el producer y los workers para que vean los archivos nuevos:
+
+```sh
+docker compose restart producer worker1 worker2
+```
+
+### Generar el zip y subirlo a Drive
+
+Si tenés el dataset crudo y necesitás generar el archivo:
+
+```sh
+make pack-radar                                              # toma de ../tiles-processor/data/radar_h5 por defecto
+make pack-radar SOURCE=/ruta/a/radar_h5 OUTPUT=/tmp/radar.zip
+```
+
+El script crea `radar_h5.zip` (almacenamiento sin compresión, los `.H5` ya vienen comprimidos internamente). Subílo a Google Drive, compartilo "con cualquiera que tenga el link" y pasale la URL al equipo de deploy.
 
 ## Cómo funciona
 
@@ -166,7 +211,7 @@ El meta-repo se apoya en dos ideas para no tener que modificar los submódulos:
 
 ## Personalizar credenciales y puertos
 
-**Regla única**: editá `.env` en la raíz, después regenerá los `.env` de los submódulos:
+Editás el `.env` de la raíz y después regenerás los de cada submódulo:
 
 ```sh
 # con make
@@ -196,6 +241,8 @@ Y luego volvé a levantar (`make prod` o `docker compose up --build`).
 | `make clean` | Para y elimina contenedores **y volúmenes** — reset total |
 | `make setup` | (Re)genera los `.env` desde el `.env` raíz |
 | `make update` | Trae cada submódulo al último commit de su rama upstream (`git submodule update --init --recursive --remote`) |
+| `make fetch-radar URL=<google-drive-url>` | Descarga y descomprime el dataset de radar H5 desde Google Drive en `tiles-processor/data/radar_h5/` |
+| `make pack-radar` | Empaqueta el dataset de radar local en `radar_h5.zip` (para subir a Google Drive) |
 | `make up` | Stack de **dev** por submódulo (cada uno corre su `docker-compose-dev.yaml` con hot reload) |
 | `make data-service` / `make alerts-service` / `make tiles-processor` / `make visualizer` | Levanta un solo submódulo en modo dev |
 

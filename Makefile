@@ -2,7 +2,7 @@
 
 SERVICES = data-service tiles-processor visualizer alerts-service
 
-.PHONY: setup update up down prod clean $(SERVICES)
+.PHONY: setup update up down prod clean pack-radar fetch-radar $(SERVICES)
 
 setup:
 	@./scripts/setup-env.sh
@@ -21,6 +21,21 @@ prod: setup
 
 down:
 	docker compose down --remove-orphans
+
+# Pack the radar H5 dataset into a single zip ready to upload to Google Drive.
+# Usage: make pack-radar                                  (defaults to ../tiles-processor/data/radar_h5)
+#        make pack-radar SOURCE=/path/to/radar_h5 OUTPUT=/path/to/radar.zip
+pack-radar:
+	@./scripts/pack-radar.sh "$(SOURCE)" "$(OUTPUT)"
+
+# Download the radar dataset from Google Drive and extract into tiles-processor/data/radar_h5/.
+# Usage: make fetch-radar URL=https://drive.google.com/file/d/<id>/view
+fetch-radar:
+	@if [ -z "$(URL)" ]; then \
+		echo "Usage: make fetch-radar URL=<google-drive-share-url-or-file-id>"; \
+		exit 1; \
+	fi
+	@./scripts/fetch-radar.sh "$(URL)"
 
 # Wipe the stack: stop + remove all containers, networks, and volumes.
 # Built images are kept (rebuilds are slow). Data in volumes is destroyed.
