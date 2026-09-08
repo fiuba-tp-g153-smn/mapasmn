@@ -25,6 +25,7 @@ command -v envsubst >/dev/null || {
 }
 
 set -a
+. "$ROOT_DIR/.env.example"
 . "$ROOT_DIR/.env"
 set +a
 

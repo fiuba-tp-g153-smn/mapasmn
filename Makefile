@@ -2,7 +2,7 @@
 
 SERVICES = data-service tiles-processor visualizer alerts-service
 
-.PHONY: setup update up down prod clean pack-radar fetch-radar $(SERVICES)
+.PHONY: setup update up down prod beta-1 beta-1-down clean pack-radar fetch-radar $(SERVICES)
 
 setup:
 	@./scripts/setup-env.sh
@@ -18,6 +18,15 @@ update:
 prod: setup
 	@docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null
 	docker compose up --build
+
+# Beta-1: production variants for the three HTTP components plus the measured
+# light tiles-processor preset (one normal worker and one light worker).
+beta-1: setup
+	@docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null
+	docker compose -f compose.beta-1.yaml up --build
+
+beta-1-down:
+	docker compose -f compose.beta-1.yaml down --remove-orphans
 
 down:
 	docker compose down --remove-orphans

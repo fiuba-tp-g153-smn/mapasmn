@@ -12,6 +12,7 @@ Meta-repositorio que agrupa todos los servicios del proyecto mapasmn como submó
 - [Prerrequisitos](#prerrequisitos)
   - [Instalación de `envsubst`](#instalación-de-envsubst)
 - [Inicio rápido — con `make` (recomendado)](#inicio-rápido--con-make-recomendado)
+- [Beta-1 — sistema completo para una VM de 8 GB](#beta-1--sistema-completo-para-una-vm-de-8-gb)
 - [Inicio rápido — sin `make` (sólo `docker compose`)](#inicio-rápido--sin-make-sólo-docker-compose)
 - [Datos de radar](#datos-de-radar)
 - [Cómo funciona](#cómo-funciona)
@@ -119,6 +120,35 @@ make prod
 Si clonaste sin `--recurse-submodules`, ejecutá `make update` antes para traer los submódulos. `make prod` no toca los punteros de submódulos, así que tu HEAD local nunca se pisa.
 
 Después del primer `make prod`, ejecutar `docker compose up` desde la raíz alcanza — `make` es sólo una conveniencia que además regenera los `.env`.
+
+## Beta-1 — sistema completo para una VM de 8 GB
+
+`beta-1` levanta los cuatro componentes en una sola VM: tiles-processor,
+data-service, alerts-service y visualizer. Usa los compose de producción de los
+tres servicios HTTP y el preset versionado `beta-1` de tiles-processor, cuya
+configuración fue medida por el equipo por debajo de 8 GB de RAM.
+
+```sh
+make beta-1
+```
+
+El preset de tiles-processor ejecuta RabbitMQ, SeaweedFS, producer, un worker
+normal, un worker light y metrics-api. La selección congelada de productos deja
+activos GOES-19 Band 13/Band 9, GLM FED, los radares RMA1/RMA2/RMA8, WRF Colmax
+y Ráfagas, ECMWF precipitation y GFS MSLP. Los archivos fuente del preset son
+`docker-compose-beta-1.yaml`, `docker-compose-beta-1.override.yaml` y
+`settings-beta-1.json` dentro del submódulo `tiles-processor`.
+
+Esta variante usa el bind mount del compose de desarrollo para los datos de
+entrada. Antes de levantarla, el operador debe precargar los radares en
+`tiles-processor/data/radar_h5`; `make fetch-radar` corresponde al volumen del
+compose de producción y no alimenta este perfil.
+
+Para bajar beta-1 preservando sus datos:
+
+```sh
+make beta-1-down
+```
 
 ## Inicio rápido — sin `make` (sólo `docker compose`)
 

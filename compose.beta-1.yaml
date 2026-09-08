@@ -1,0 +1,10 @@
+# Beta-1: full four-component system sized from the measured light
+# tiles-processor workload for a VM with 8 GB of RAM.
+
+include:
+  - path:
+      - tiles-processor/docker-compose-beta-1.yaml
+      - tiles-processor/docker-compose-beta-1.override.yaml
+  - data-service/docker-compose.yaml
+  - alerts-service/docker-compose.yaml
+  - visualizer/docker-compose.yml
