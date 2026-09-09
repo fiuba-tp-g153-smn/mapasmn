@@ -1,459 +1,228 @@
 # mapasmn
 
-Meta-repositorio que agrupa todos los servicios del proyecto mapasmn como submódulos de git y los orquesta como un único proyecto de Docker Compose.
+Meta-repositorio de Mapas SMN. Fija las revisiones de `tiles-processor`,
+`data-service`, `alerts-service` y `visualizer`, genera su configuración desde
+un único `.env` y puede levantarlos como un solo proyecto de Docker Compose.
 
-## Tabla de contenidos
+La documentación funcional y técnica del sistema vive en `visualizer/docs` y
+se publica dentro del visualizador. La guía detallada de este perfil está en
+[Beta-1: un sistema completo y liviano](./visualizer/docs/tecnica/operacion/beta-1.md).
 
-- [¿Qué es este repo?](#qué-es-este-repo)
-- [Servicios en producción](#servicios-en-producción)
-- [Servicios y puertos](#servicios-y-puertos)
-- [Contenedores y puertos detallados](#contenedores-y-puertos-detallados)
-  - [Resumen de puertos del host](#resumen-de-puertos-del-host)
-- [Prerrequisitos](#prerrequisitos)
-  - [Instalación de `envsubst`](#instalación-de-envsubst)
-- [Inicio rápido — con `make` (recomendado)](#inicio-rápido--con-make-recomendado)
-- [Beta-1 — sistema completo para una VM de 8 GB](#beta-1--sistema-completo-para-una-vm-de-8-gb)
-- [Inicio rápido — sin `make` (sólo `docker compose`)](#inicio-rápido--sin-make-sólo-docker-compose)
-- [Datos de radar](#datos-de-radar)
-- [Cómo funciona](#cómo-funciona)
-- [Personalizar credenciales y puertos](#personalizar-credenciales-y-puertos)
-- [URLs de los servicios después de levantar](#urls-de-los-servicios-después-de-levantar)
-- [Comandos `make`](#comandos-make)
-- [Variables de entorno](#variables-de-entorno)
-  - [Compartidas](#compartidas)
-  - [S3 / SeaweedFS (cross-service)](#s3--seaweedfs-cross-service)
-  - [data-service](#data-service)
-  - [alerts-service](#alerts-service)
-  - [tiles-processor — SeaweedFS](#tiles-processor--seaweedfs)
-  - [tiles-processor — RabbitMQ](#tiles-processor--rabbitmq)
-  - [tiles-processor — workers](#tiles-processor--workers)
-  - [visualizer](#visualizer)
-- [Configuración avanzada por submódulo](#configuración-avanzada-por-submódulo)
-- [Detalle fino por submódulo](#detalle-fino-por-submódulo)
-  - [tiles-processor (4 contenedores)](#tiles-processor-4-contenedores)
-  - [data-service (2 contenedores)](#data-service-2-contenedores)
-  - [alerts-service (2 contenedores)](#alerts-service-2-contenedores)
-  - [visualizer (2 contenedores)](#visualizer-2-contenedores)
+## Qué perfil elegir
 
-## ¿Qué es este repo?
-
-Este repositorio **no contiene código de aplicación propio**. Cada servicio vive en su propio repositorio de GitHub y se incorpora acá como un submódulo. La función del meta-repositorio es:
-
-1. Levantar los cuatro servicios juntos con un solo `docker compose up`.
-2. Centralizar la configuración de desarrollo en un único `.env` raíz.
-
-## Servicios en producción
-
-Estado en vivo de todos los servicios: <https://uptime.mapasmn.com/status/smn>
-
-| Servicio | URL pública | Repositorio |
+| Perfil | Uso | Comando |
 |---|---|---|
-| Visualizer (mapa interactivo) | <https://mapasmn.com> | [github.com/fiuba-tp-g153-smn/visualizer](https://github.com/fiuba-tp-g153-smn/visualizer) |
-| data-service | <https://data.mapasmn.com/docs> | [github.com/fiuba-tp-g153-smn/data-service](https://github.com/fiuba-tp-g153-smn/data-service) |
-| alerts-service | <https://alerts.mapasmn.com/docs> | [github.com/fiuba-tp-g153-smn/alerts-service](https://github.com/fiuba-tp-g153-smn/alerts-service) |
-| tiles-processor | *(sin endpoint público — pipeline de procesamiento)* | [github.com/fiuba-tp-g153-smn/tiles-processor](https://github.com/fiuba-tp-g153-smn/tiles-processor) |
+| **Beta-1** | Sistema completo en una VM de 8 GB, conectado a fuentes reales | `make beta-1` |
+| Producción completa | Catálogo y concurrencia completos de `tiles-processor` | `make prod` |
+| Desarrollo | Los cuatro entornos de desarrollo con recarga | `make up` |
 
-## Servicios y puertos
+**Beta-1 es el punto de entrada recomendado para una instalación nueva en una
+sola VM.** Conserva los cuatro componentes y todos los flujos del sistema. La
+reducción está en la cantidad de workers y en el catálogo de productos que
+procesa, no en reemplazar datos reales por datos simulados.
 
-| Servicio | Stack | Puertos |
-|---|---|---|
-| [`data-service`](./data-service) | FastAPI + Redis | `6006` (API), `6379` (Redis, interno) |
-| [`alerts-service`](./alerts-service) | FastAPI + MySQL | `6007` (API), `3306` (MySQL) |
-| [`visualizer`](./visualizer) | Angular + nginx | `6010` (frontend), `6011` (docs) |
-| [`tiles-processor`](./tiles-processor) | Producer + workers, SeaweedFS, RabbitMQ | `9000` (S3), `5672` (AMQP), `15672` (RabbitMQ UI) |
+## Requisitos
 
-## Contenedores y puertos detallados
+- Una VM Linux con 8 GB de RAM y espacio suficiente para los datos crudos y
+  procesados.
+- Docker Engine y Docker Compose 2.20 o posterior.
+- Git, `make`, un shell POSIX y `envsubst` de GNU gettext.
+- Acceso saliente a NOAA, ECMWF, NOMADS, IGN y la API del SMN.
+- Feeds vivos de radar SINARAME, GLM y WRF-ARG4K, o un mecanismo que los copie
+  al directorio de entrada del procesador.
 
-`make prod` (o `docker compose up`) levanta **11 contenedores** distribuidos en los cuatro submódulos. Acá va primero el resumen plano de puertos expuestos al host, y después el drilldown por submódulo con cada contenedor y sus puertos internos.
-
-### Resumen de puertos del host
-
-| Puerto host | Contenedor | Servicio |
-|---|---|---|
-| `3306` | `alerts-mysql` | MySQL |
-| `5672` | `tiles-processor-rabbitmq` | RabbitMQ AMQP |
-| `6006` | `data-service-container` | data-service API |
-| `6007` | `alerts-service-container` | alerts-service API |
-| `6010` | `visualizer-container` | Frontend |
-| `6011` | `docs-service-container` | Docs |
-| `8888` | `tiles-processor-seaweedfs` | SeaweedFS Filer |
-| `9000` | `tiles-processor-seaweedfs` | SeaweedFS S3 API |
-| `9333` | `tiles-processor-seaweedfs` | SeaweedFS Master |
-| `15672` | `tiles-processor-rabbitmq` | RabbitMQ Management UI |
-| `23646` | `tiles-processor-seaweedfs` | SeaweedFS Admin |
-
-Si alguno de estos puertos colisiona con algo que ya tenés en el host, cambialo en el `.env` raíz: `${RABBITMQ_PORT}`, `${RABBITMQ_MGMT_PORT}`, `${S3_TILES_DATA_PORT}`, los `*_APP_HOST_PORT` y `${DOCS_HOST_PORT}` son configurables. Los puertos `3306`, `8888`, `9333` y `23646` están hardcodeados en los compose de los submódulos.
-
-## Prerrequisitos
-
-| Dependencia | Versión mínima | Para qué se usa |
-|---|---|---|
-| Docker Engine | 20.10+ | Construir y correr los contenedores |
-| Docker Compose CLI | **2.20.0** | Necesario para la directiva `include:` en `compose.yaml` |
-| Git | 2.x | Clonar el repo y manejar submódulos |
-| `envsubst` (GNU gettext) | cualquiera | Renderizar los `.env` de cada submódulo desde plantillas |
-| Shell POSIX (`sh`/`bash`/`zsh`) | — | Ejecutar `scripts/setup-env.sh` |
-| `make` *(opcional)* | cualquiera | Sólo si querés usar los targets del `Makefile` |
-
-### Instalación de `envsubst`
-
-- **Debian/Ubuntu**: `sudo apt-get install -y gettext-base`
-- **Fedora/RHEL**: `sudo dnf install -y gettext`
-- **Arch**: `sudo pacman -S gettext`
-- **macOS**: `brew install gettext` (puede requerir `brew link --force gettext`)
-
-Para verificar la versión de Docker Compose:
+En Debian o Ubuntu:
 
 ```sh
+sudo apt-get install -y git make gettext-base
 docker compose version
 ```
 
-## Inicio rápido — con `make` (recomendado)
+## Desplegar Beta-1
+
+### 1. Clonar las revisiones fijadas
 
 ```sh
 git clone --recurse-submodules git@github.com:fiuba-tp-g153-smn/mapasmn.git
 cd mapasmn
-make fetch-radar URL=<google-drive-share-url>
-make prod
 ```
 
-Si clonaste sin `--recurse-submodules`, ejecutá `make update` antes para traer los submódulos. `make prod` no toca los punteros de submódulos, así que tu HEAD local nunca se pisa.
+Si el repositorio ya estaba clonado:
 
-Después del primer `make prod`, ejecutar `docker compose up` desde la raíz alcanza — `make` es sólo una conveniencia que además regenera los `.env`.
+```sh
+git submodule update --init --recursive
+```
 
-## Beta-1 — sistema completo para una VM de 8 GB
+### 2. Crear y revisar la configuración
 
-`beta-1` levanta los cuatro componentes en una sola VM: tiles-processor,
-data-service, alerts-service y visualizer. Usa los compose de producción de los
-tres servicios HTTP y el preset versionado `beta-1` de tiles-processor, cuya
-configuración fue medida por el equipo por debajo de 8 GB de RAM.
+```sh
+make setup
+```
+
+El comando crea `.env` la primera vez y genera los `.env` de los cuatro
+submódulos. **Editar solamente el `.env` de la raíz**; los demás son artefactos
+generados y se sobrescriben.
+
+Antes de construir las imágenes, revisar como mínimo:
+
+```dotenv
+APP_ENV=production
+DEV_PASSWORD=<una-clave-larga-y-aleatoria>
+
+SMN_API_USERNAME=<usuario>
+SMN_API_PASSWORD=<clave>
+SMN_API_BASE_URL=<endpoint-asignado-por-el-SMN>
+
+DATA_SERVICE_BASE_URL=https://data.example.org
+ALERTS_SERVICE_BASE_URL=https://alerts.example.org
+METRICS_SERVICE_BASE_URL=https://metrics.example.org
+DOCS_URL=/docs-site
+```
+
+Las tres URL de servicios son las direcciones que abrirá **el navegador del
+usuario**. No deben apuntar a `localhost` cuando el navegador y la VM son
+máquinas distintas. En una red privada sin proxy pueden usar la IP o el nombre
+DNS de la VM y los puertos `6006`, `6007` y `6020`.
+
+Después de editar `.env`, ejecutar otra vez:
+
+```sh
+make setup
+```
+
+### 3. Conectar las fuentes vivas
+
+Beta-1 descarga directamente GOES-19, ECMWF y GFS desde sus fuentes públicas.
+Radar, GLM y WRF son feeds locales: el productor observa estos directorios del
+host, montados como `/app/data` dentro de sus contenedores:
+
+| Fuente | Directorio del host |
+|---|---|
+| GLM | `tiles-processor/data/glm_h5/` |
+| Radar SINARAME | `tiles-processor/data/radar_h5/` |
+| WRF-ARG4K | `tiles-processor/data/wrf_nc/` |
+
+La integración esperada es que los procesos del organismo escriban allí cada
+nuevo archivo con su nombre y marca temporal originales. Es preferible copiar a
+un nombre temporal y renombrar al terminar, para que el productor nunca observe
+un archivo parcial. No hace falta reiniciar contenedores: el productor descubre
+nuevos ingresos cada cinco minutos.
+
+El perfil habilita:
+
+- GOES-19 bandas 13 y 9;
+- GLM FED;
+- seis productos de RMA1, RMA2 y RMA8;
+- WRF Colmax y Ráfagas;
+- precipitación ECMWF;
+- presión a nivel del mar de GFS.
+
+`data-simulator` existe para laboratorios sin feeds vivos. **No es parte del
+despliegue Beta-1 previsto** y no debe interponerse cuando están disponibles las
+fuentes reales.
+
+### 4. Levantar el sistema
 
 ```sh
 make beta-1
 ```
 
-El preset de tiles-processor ejecuta RabbitMQ, SeaweedFS, producer, un worker
-normal, un worker light y metrics-api. La selección congelada de productos deja
-activos GOES-19 Band 13/Band 9, GLM FED, los radares RMA1/RMA2/RMA8, WRF Colmax
-y Ráfagas, ECMWF precipitation y GFS MSLP. Los archivos fuente del preset son
-`docker-compose-beta-1.yaml`, `docker-compose-beta-1.override.yaml` y
-`settings-beta-1.json` dentro del submódulo `tiles-processor`.
+El proyecto inicia 12 contenedores:
 
-Esta variante usa el bind mount del compose de desarrollo para los datos de
-entrada. Antes de levantarla, el operador debe precargar los radares en
-`tiles-processor/data/radar_h5`; `make fetch-radar` corresponde al volumen del
-compose de producción y no alimenta este perfil.
+| Componente | Contenedores |
+|---|---:|
+| `tiles-processor` | 6: broker, almacén, productor, worker normal, worker liviano y métricas |
+| `data-service` | 3: Redis, API y sincronizador |
+| `alerts-service` | 2: MySQL y aplicación |
+| `visualizer` | 1: nginx con la aplicación y esta documentación |
 
-Para bajar beta-1 preservando sus datos:
+La primera construcción tarda varios minutos. El primer arranque de
+`alerts-service` también puede tardar hasta ocho minutos mientras prepara las
+capas administrativas.
 
-```sh
-make beta-1-down
-```
+### 5. Verificar
 
-## Inicio rápido — sin `make` (sólo `docker compose`)
-
-Equivalente exacto a `make prod`, paso a paso:
+Desde una máquina que tenga acceso a la VM:
 
 ```sh
-# 1. Clonar el repo con submódulos
-git clone --recurse-submodules git@github.com:fiuba-tp-g153-smn/mapasmn.git
-cd mapasmn
-
-# (Si ya clonaste sin submódulos, traerlos ahora:)
-# git submodule update --init --recursive
-
-# 2. Generar el .env raíz y los .env de cada submódulo
-./scripts/setup-env.sh
-
-# 3. Crear la red externa que data-service espera (idempotente)
-docker network inspect data_service_network >/dev/null 2>&1 \
-    || docker network create data_service_network
-
-# 4. Bajar el dataset de radar al volumen mapasmn_tiles_data
-./scripts/fetch-radar.sh <google-drive-share-url>
-
-# 5. Levantar todo
-docker compose up --build
+curl -f http://<vm>:6006/health
+curl -f http://<vm>:6006/sync/status
+curl -f http://<vm>:6007/health
+curl -f http://<vm>:6020/health
+curl -f http://<vm>:6010/
 ```
 
-Equivalentes sin `make` para el resto de las operaciones:
+El visualizador queda en `http://<vm>:6010` y la documentación compilada en
+`http://<vm>:6010/docs-site/`. El panel de estado del visualizador es la
+comprobación de extremo a extremo.
 
-| Operación | Con `make` | Sin `make` |
-|---|---|---|
-| Levantar | `make prod` | Pasos 1–5 de arriba |
-| Bajar (preserva volúmenes) | `make down` | `docker compose down --remove-orphans` |
-| Reset total (borra volúmenes) | `make clean` | `docker compose down --remove-orphans --volumes && docker network rm data_service_network` |
-| Actualizar submódulos | `make update` | `git submodule update --init --recursive --remote` |
-| Regenerar `.env` | `make setup` | `./scripts/setup-env.sh` |
-| Bajar dataset de radar | `make fetch-radar URL=<drive-url>` | `./scripts/fetch-radar.sh <drive-url>` |
+La ausencia inicial de una capa local no implica que el servicio esté roto:
+primero comprobar que el feed esté dejando archivos nuevos en el directorio
+correcto y luego esperar el siguiente ciclo de descubrimiento.
 
-## Datos de radar
-
-El pipeline de tiles-processor consume un dataset de archivos `.H5` (uno por radar / variable / instante) que se distribuye por Google Drive — es parte del setup.
-
-El dataset pesa ~4 GB sin comprimir, así que **no se versiona en el repo**.
-
-### Bajar y conectar el dataset
-
-Una vez que tenés la URL de Google Drive del zip:
+## Operación
 
 ```sh
-make fetch-radar URL=https://drive.google.com/file/d/<file-id>/view
+make beta-1                 # construir y levantar en primer plano
+make beta-1-down            # bajar; conserva los datos
+docker compose -f compose.beta-1.yaml ps
+docker compose -f compose.beta-1.yaml logs -f producer worker1 worker-light1
 ```
 
-Esto levanta un contenedor `python:3.12-slim` efímero que corre `gdown`, deja el zip cacheado en `./.cache/radar_h5.zip` y luego lo descomprime dentro del **docker volume** `mapasmn_tiles_data` (que el compose de prod monta como `/app/data` en el producer y los workers). Sólo requiere Docker en el host — sin instalación de `gdown`, `unzip` ni nada de Python local. Tras la descarga, el sistema queda listo para `make prod`.
-
-El script es idempotente: si `./.cache/radar_h5.zip` ya existe, salta la descarga y vuelve a extraer al volumen. Para forzar una descarga fresca, borrá el archivo cacheado:
+Para actualizar a las nuevas revisiones que haya fijado este repositorio:
 
 ```sh
-rm .cache/radar_h5.zip
+git pull --ff-only
+git submodule update --init --recursive
+make beta-1
 ```
 
-Si el stack ya está corriendo cuando ejecutás `make fetch-radar`, reiniciá el producer y los workers para que vean los archivos nuevos:
-
-```sh
-docker compose restart producer worker1 worker2
-```
-
-### Generar el zip y subirlo a Drive
-
-Si tenés el dataset crudo y necesitás generar el archivo:
-
-```sh
-make pack-radar                                              # toma de ../tiles-processor/data/radar_h5 por defecto
-make pack-radar SOURCE=/ruta/a/radar_h5 OUTPUT=/tmp/radar.zip
-```
-
-El script crea `radar_h5.zip` (almacenamiento sin compresión, los `.H5` ya vienen comprimidos internamente). Subílo a Google Drive, compartilo "con cualquiera que tenga el link" y pasale la URL al equipo de deploy.
-
-## Cómo funciona
-
-El meta-repo se apoya en dos ideas para no tener que modificar los submódulos:
-
-1. **Un único proyecto Compose vía `include:`.** El `compose.yaml` de la raíz es básicamente una lista de `include:` apuntando al `docker-compose.yaml` de cada submódulo. Compose ≥ 2.20 los unifica en un solo proyecto (`mapasmn`, derivado del nombre del directorio): red compartida, namespace de volúmenes común, ciclo de vida `up`/`down` único. **Los compose de los submódulos nunca se editan.**
-
-2. **Un único `.env` raíz vía plantillas con fan-out.** Los compose de los submódulos referencian variables con nombres en conflicto (por ejemplo, `APP_HOST_PORT` vale 6006/6007/6010 en tres servicios distintos). Para mantener una única fuente de verdad en la raíz **sin** modificar los submódulos:
-   - El `.env.example` raíz nombra las variables conflictivas con prefijo (`DATA_SERVICE_APP_HOST_PORT`, `ALERTS_SERVICE_APP_HOST_PORT`, etc.).
-   - `scripts/env-templates/<servicio>.env` mapea cada variable raíz al nombre que el submódulo espera.
-   - `scripts/setup-env.sh` copia `.env.example` → `.env` (reemplazando `REPLACE_WITH_SECURE_PASSWORD` por `devpassword`) y después corre `envsubst` sobre cada plantilla, escribiendo el `.env` de cada submódulo.
-
-> **Nota:** los `.env` que aparecen dentro de cada submódulo son **artefactos generados**. No los edites a mano — se sobrescriben en cada `make setup` / `./scripts/setup-env.sh`. La única fuente de verdad es el `.env` raíz.
-
-## Personalizar credenciales y puertos
-
-Editás el `.env` de la raíz y después regenerás los de cada submódulo:
-
-```sh
-# con make
-make setup
-
-# sin make
-./scripts/setup-env.sh
-```
-
-Y luego volvé a levantar (`make prod` o `docker compose up --build`).
-
-> Los `.env` dentro de cada submódulo son archivos generados — **no los edites a mano**, se sobrescriben.
-
-## URLs de los servicios después de levantar
-
-- Docs de data-service: <http://localhost:6006/docs>
-- Docs de alerts-service: <http://localhost:6007/docs>
-- Visualizer: <http://localhost:6010>
-- UI de management de RabbitMQ: <http://localhost:15672> — usuario `tiles_processor`, contraseña `devpassword`
-
-## Comandos `make`
-
-| Target | Descripción |
-|---|---|
-| `make prod` | Genera los `.env`, crea la red `data_service_network` si falta, y corre `docker compose up --build` desde la raíz |
-| `make down` | Para y elimina los contenedores; **preserva volúmenes y datos** |
-| `make clean` | Para y elimina contenedores **y volúmenes** — reset total |
-| `make setup` | (Re)genera los `.env` desde el `.env` raíz |
-| `make update` | Trae cada submódulo al último commit de su rama upstream (`git submodule update --init --recursive --remote`) |
-| `make fetch-radar URL=<google-drive-url>` | Descarga y descomprime el dataset de radar H5 desde Google Drive en `tiles-processor/data/radar_h5/` |
-| `make pack-radar` | Empaqueta el dataset de radar local en `radar_h5.zip` (para subir a Google Drive) |
-| `make up` | Stack de **dev** por submódulo (cada uno corre su `docker-compose-dev.yaml` con hot reload) |
-| `make data-service` / `make alerts-service` / `make tiles-processor` / `make visualizer` | Levanta un solo submódulo en modo dev |
-
-## Variables de entorno
-
-Todas las variables están definidas en [`.env.example`](./.env.example). El usuario edita **únicamente** ese archivo (o su copia generada `.env`); los `.env` de cada submódulo se rederivan automáticamente.
-
-### Compartidas
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `APP_ENV` | `development` | Entorno de la app. `production` activa el formateo de logs estilo NewRelic en data-service y alerts-service |
-| `LOG_LEVEL` | `INFO` | Nivel de logging Python (`DEBUG` / `INFO` / `WARNING` / `ERROR`) |
-| `DEV_PASSWORD` | `REPLACE_WITH_SECURE_PASSWORD` (sustituido por `devpassword` al correr `setup-env.sh`) | Contraseña única usada en TODOS los servicios donde haga falta una credencial. Cambiar acá la propaga a SeaweedFS, MySQL, RabbitMQ, etc. |
-
-### S3 / SeaweedFS (cross-service)
-
-SeaweedFS lo levanta `tiles-processor` y lo consumen `data-service` y `alerts-service`. Los usuarios se aprovisionan al primer arranque de SeaweedFS.
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `S3_TILES_DATA_PORT` | `9000` | Puerto en el host donde SeaweedFS expone su API S3 |
-| `S3_TILES_DATA_BUCKET_NAME` | `tiles-data` | Bucket donde se guardan los tiles satelitales / radar / ECMWF |
-| `S3_ROOT_USER` | `root_admin` | Usuario administrador interno de SeaweedFS |
-| `S3_TILES_DATA_TILES_PROCESSOR_USER` | `tiles_processor` | Usuario S3 para tiles-processor (escribe tiles) |
-| `S3_TILES_DATA_DATA_SERVICE_USER` | `data_service` | Usuario S3 para data-service (lee tiles) |
-| `S3_INTERSECTION_DATA_BUCKET_NAME` | `intersection-data` | Bucket de capas geojson para alerts-service |
-| `S3_INTERSECTION_DATA_ALERTS_SERVICE_USER` | `alerts_service` | Usuario S3 para alerts-service |
-| `S3_BASEMAP_BUCKET_NAME` | `basemap-tiles` | Bucket de tiles de mapa base (cacheados por data-service) |
-
-### data-service
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `DATA_SERVICE_APP_HOST_PORT` | `6006` | Puerto en el host donde se expone la API |
-| `DATA_SERVICE_WEB_CONCURRENCY` | `3` | Cantidad de workers de Uvicorn |
-| `DATA_SERVICE_SYNC_INTERVAL_SECONDS` | `60` | Intervalo (segundos) del background sync que copia tiles desde S3 al disco local |
-| `REDIS_URL` | `redis://redis:6379/0` | URL de conexión al Redis interno |
-
-### alerts-service
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `ALERTS_SERVICE_APP_HOST_PORT` | `6007` | Puerto en el host donde se expone la API |
-| `MYSQL_DATABASE` | `aviso_gempak` | Nombre de la base de datos MySQL |
-| `MYSQL_HOST` | `mysql` | Hostname del contenedor MySQL (resuelto en la red Compose) |
-| `MYSQL_PORT` | `3306` | Puerto MySQL |
-| `MYSQL_ROOT_HOST` | `localhost` | Host desde el cual el usuario `root` de MySQL puede conectar |
-| `MYSQL_USER` | `alerts_service` | Usuario de aplicación con permisos completos sobre la DB |
-| `MYSQL_READONLY_USER` | `avisos` | Usuario de sólo-lectura para consultas externas |
-| `MYSQL_READONLY_MAX_CONNECTIONS` | `50` | Límite de conexiones simultáneas para el usuario read-only |
-| `MYSQL_READONLY_MAX_CONNECTIONS_PER_HOUR` | `10000` | Límite de conexiones por hora para el usuario read-only |
-
-### tiles-processor — SeaweedFS
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `SEAWEEDFS_FILER_ENDPOINT` | `seaweedfs:8888` | Endpoint del filer (habilita TTL por tile) |
-| `SEAWEEDFS_TILE_TTL` | `6h` | TTL para tiles satelitales |
-| `SEAWEEDFS_RADAR_TILE_TTL` | `30d` | TTL para tiles de radar |
-| `SEAWEEDFS_METRICS_ADDRESS` | *(vacío)* | Dirección del Prometheus Push Gateway (`<host>:<puerto>`). Vacío = métricas deshabilitadas |
-| `PROMETHEUS_PUSHGATEWAY_HTTP_PROTO` | `http` | `http` o `https` para el push gateway |
-| `PROMETHEUS_PUSHGATEWAY_USER` | `push_user` | Usuario de basic auth para el push gateway |
-
-### tiles-processor — RabbitMQ
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `RABBITMQ_PORT` | `5672` | Puerto AMQP |
-| `RABBITMQ_MGMT_PORT` | `15672` | Puerto de la UI de management |
-| `RABBITMQ_USER` | `tiles_processor` | Usuario por defecto de RabbitMQ |
-| `RABBITMQ_QUEUE` | `tiles_work_queue` | Cola principal de unidades de trabajo |
-| `RABBITMQ_DLQ` | `tiles_dead_letter_queue` | Cola de mensajes rechazados |
-| `RABBITMQ_DLX` | `tiles_dlx` | Exchange de mensajes muertos |
-
-### tiles-processor — workers
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `JOB_TTL_MINUTES` | `20` | Tiempo máximo (minutos) que un job puede vivir antes de ser descartado |
-| `GDAL_CACHEMAX` | `128` | Caché máximo de GDAL en MB |
-| `CPL_VSIL_CURL_CACHE_SIZE` | `16777216` | Caché VSI/CURL de GDAL en bytes (16 MB) |
-
-### visualizer
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `VISUALIZER_APP_HOST_PORT` | `6010` | Puerto en el host donde se sirve el frontend |
-| `DOCS_HOST_PORT` | `6011` | Puerto en el host donde se sirven los docs (Docusaurus) |
-| `DOCS_URL` | `http://localhost:6011` | URL pública del sitio de docs |
-| `DATA_SERVICE_BASE_URL` | `http://localhost:6006` | URL base de data-service vista desde el navegador |
-| `ALERTS_SERVICE_BASE_URL` | `http://localhost:6007` | URL base de alerts-service vista desde el navegador |
-| `TILE_FORMAT` | `webp` | Formato de tiles que pide el visualizer (`webp` o `png`) |
-
-## Configuración avanzada por submódulo
-
-El `.env` raíz expone los parámetros que necesitás cambiar para correr el stack en local. Cada submódulo además tiene **su propia configuración interna** que **no** se surfacea acá: tunables de runtime, modos de sincronización, ventanas de cache, cron de tareas, etc.
-
-| Submódulo | Configuración adicional | Documentación |
-|---|---|---|
-| [`data-service`](./data-service) | `data-service/settings.json` (`sync_mode`, `basemap_sync_mode`, `basemap_*`, `tile_ttl`, `s3_max_concurrent_downloads`, etc.) | [`data-service/README.md`](./data-service/README.md), [`data-service/CLAUDE.md`](./data-service/CLAUDE.md) |
-| [`alerts-service`](./alerts-service) | `alerts-service/settings.json` (`layer_update_cron`, `simplify_tolerance`), `alerts-service/.env.example` (URLs WFS de IGN) | [`alerts-service/README.md`](./alerts-service/README.md), [`alerts-service/CLAUDE.md`](./alerts-service/CLAUDE.md) |
-| [`tiles-processor`](./tiles-processor) | `tiles-processor/settings.json` (cantidad de workers, intervalo del producer, geographic bounds) | [`tiles-processor/README.md`](./tiles-processor/README.md), [`tiles-processor/CLAUDE.md`](./tiles-processor/CLAUDE.md) |
-| [`visualizer`](./visualizer) | Configuración de Angular en `visualizer/src/environments/`, definición de capas en `visualizer/src/app/config/layers/` | [`visualizer/README.md`](./visualizer/README.md), [`visualizer/CLAUDE.md`](./visualizer/CLAUDE.md) |
-
-Para detalles de cada submódulo, leé el `README.md` y el `CLAUDE.md` que viven dentro suyo.
-
-## Detalle fino por submódulo
-
-### tiles-processor (4 contenedores)
-
-**`tiles-processor-rabbitmq`** — imagen `rabbitmq:4.2.4-management`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${RABBITMQ_PORT}` (`5672`) | `5672` | Protocolo AMQP — los workers/producer se conectan acá |
-| `${RABBITMQ_MGMT_PORT}` (`15672`) | `15672` | UI web de management (login: `tiles_processor` / `devpassword`) |
-
-**`tiles-processor-seaweedfs`** — imagen `chrislusf/seaweedfs:4.20`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${S3_TILES_DATA_PORT}` (`9000`) | `8333` | API S3 — lo consumen `data-service` y `alerts-service` |
-| `8888` | `8888` | Filer (TTL por archivo, navegación HTTP) |
-| `9333` | `9333` | Master (cluster status, healthcheck) |
-| `23646` | `23646` | UI de administración de SeaweedFS |
-
-**`tiles-processor-producer`** — imagen local `tiles-processor` (build de `tiles-processor/Dockerfile`)
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| *(sin puerto en el host)* | `8080` | Endpoint `/health` interno (lo usa el healthcheck del contenedor) |
-
-Job programado (cron + APScheduler) que descubre imágenes nuevas en NOAA S3 y publica trabajos a RabbitMQ.
-
-**`tiles-processor-worker1`** y **`tiles-processor-worker2`** — imagen local `tiles-processor` (misma que producer, distinto comando)
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| *(sin puerto en el host)* | `8080` | Endpoint `/health` interno |
-
-Consumen unidades de trabajo de RabbitMQ (`prefetch=1`, ack manual) y procesan tiles. La cantidad de workers está fija en 2 en este compose; se puede regenerar con [`tiles-processor/scripts/generate-compose.sh`](./tiles-processor/scripts/generate-compose.sh).
-
-### data-service (2 contenedores)
-
-**`data-service-redis-dev`** — imagen `redis:8.6-alpine`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| *(sin puerto en el host)* | `6379` | Redis — sólo accesible vía la red Compose como `redis:6379` |
-
-**`data-service-container`** — imagen local `data-service`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${APP_HOST_PORT}` (`6006`, controlado por `DATA_SERVICE_APP_HOST_PORT`) | `8080` | API FastAPI (docs en `/docs`) |
-
-### alerts-service (2 contenedores)
-
-**`alerts-mysql`** — imagen `mysql:8.4`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `3306` | `3306` | MySQL — accesible desde el host (cliente externo) y desde la red Compose como `mysql:3306` |
-
-**`alerts-service-container`** — imagen local `alerts-service`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${APP_HOST_PORT}` (`6007`, controlado por `ALERTS_SERVICE_APP_HOST_PORT`) | `8080` | API FastAPI (docs en `/docs`) |
-
-### visualizer (2 contenedores)
-
-**`docs-service-container`** — imagen local `mapasmn-docs-service` (build de `visualizer/docs-service/Dockerfile`)
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${DOCS_HOST_PORT}` (`6011`) | `80` | Sitio Docusaurus servido por nginx |
-
-**`visualizer-container`** — imagen local `visualizer`
-
-| Host | → Contenedor | Descripción |
-|---|---|---|
-| `${APP_HOST_PORT}` (`6010`, controlado por `VISUALIZER_APP_HOST_PORT`) | `80` | Frontend Angular servido por nginx |
+`make update` tiene otro propósito: mueve los submódulos a la punta de sus ramas
+remotas para preparar una nueva revisión del meta-repositorio. No debe usarse en
+una VM que necesite reproducir exactamente la versión fijada.
+
+## Puertos
+
+| Puerto | Servicio | Exposición recomendada |
+|---:|---|---|
+| `6010` | Visualizador y documentación | Usuarios |
+| `6006` | API de datos | Usuarios, por proxy |
+| `6007` | API de avisos | Usuarios autorizados, por proxy |
+| `6020` | Métricas del procesador | Usuarios, por proxy |
+| `9000` | API S3 de SeaweedFS | Sólo el host y los servicios |
+| `3306` | MySQL | Sólo administración local |
+| `5672` | RabbitMQ | Sólo servicios |
+| `15672` | Administración de RabbitMQ | Sólo operación |
+| `8888`, `9333`, `23646` | SeaweedFS interno/administración | Sólo operación local |
+
+Las plantillas publican varios puertos en todas las interfaces. **Beta-1 puede
+levantarse en una VM, pero no debe exponerse directamente a Internet.** Aplicar
+firewall, TLS, proxy inverso y los controles de
+[Endurecimiento](./visualizer/docs/tecnica/seguridad/endurecimiento.md) antes de
+abrirlo a una red no confiable.
+
+## Archivos que definen Beta-1
+
+- `compose.beta-1.yaml`: une los cuatro componentes.
+- `tiles-processor/docker-compose-beta-1.yaml`: topología liviana del procesador.
+- `tiles-processor/docker-compose-beta-1.override.yaml`: monta la configuración
+  congelada del perfil.
+- `tiles-processor/settings-beta-1.json`: fuentes y productos habilitados.
+- `.env`: única configuración local editable.
+- `scripts/env-templates/`: traducción del `.env` raíz a cada submódulo.
+
+Los submódulos son la fuente autoritativa del código de cada componente. Un
+cambio de versión se publica actualizando explícitamente sus punteros en este
+repositorio.
+
+## Producción completa y desarrollo
+
+`make prod` usa las plantillas de producción de los cuatro componentes y la
+configuración completa de `tiles-processor`: dos workers normales y tres
+livianos, 15 contenedores en total. Requiere más memoria que Beta-1.
+
+`make up` inicia los cuatro stacks de desarrollo por separado, con recarga y
+herramientas de desarrollo. No es un procedimiento de despliegue.
+
+Los despliegues independientes y la entrega por Coolify siguen documentados en
+[Despliegue y entrega continua](./visualizer/docs/tecnica/operacion/despliegue.md).
