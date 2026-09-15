@@ -1,11 +1,11 @@
 #!/usr/bin/env sh
-# Fetch the radar H5 dataset from Google Drive and load it into the
-# `mapasmn_tiles_data` named docker volume (which the prod compose mounts as
-# /app/data in the producer/workers).
+# Fetch a radar H5 dataset from Google Drive and load it into the host directory
+# configured as RADAR_SINARAME_INPUT_DIR.
 #
-# - Downloads the zip into ./.cache/radar_h5.zip; subsequent runs reuse the
+# - Downloads the zip into ./.cache/radar-sinarame.zip; subsequent runs reuse the
 #   cached file (rm it to force a fresh download).
-# - Always extracts from the cache into the named volume.
+# - Accepts archives whose files are at the root, under radar-sinarame/, or under
+#   the former radar_h5/ name.
 # - Uses ephemeral python:3.12-slim containers so the host needs only Docker.
 
 set -eu
@@ -26,12 +26,26 @@ URL_OR_ID="$1"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CACHE_DIR="$ROOT/.cache"
-CACHE_ZIP="$CACHE_DIR/radar_h5.zip"
-VOLUME="mapasmn_tiles_data"
+CACHE_ZIP="$CACHE_DIR/radar-sinarame.zip"
 
-command -v docker >/dev/null || { echo "docker not found — required to run the gdown container" >&2; exit 1; }
+[ -f "$ROOT/.env" ] || {
+    echo ".env not found; run 'make setup' and configure RADAR_SINARAME_INPUT_DIR" >&2
+    exit 1
+}
 
-mkdir -p "$CACHE_DIR"
+set -a
+. "$ROOT/.env"
+set +a
+
+: "${RADAR_SINARAME_INPUT_DIR:?set RADAR_SINARAME_INPUT_DIR in the root .env}"
+case "$RADAR_SINARAME_INPUT_DIR" in
+    /*) ;;
+    *) echo "RADAR_SINARAME_INPUT_DIR must be an absolute path" >&2; exit 1 ;;
+esac
+
+command -v docker >/dev/null || { echo "docker not found. It is required to run the gdown container" >&2; exit 1; }
+
+mkdir -p "$CACHE_DIR" "$RADAR_SINARAME_INPUT_DIR"
 
 if [ -f "$CACHE_ZIP" ]; then
     echo "Found cached zip: $CACHE_ZIP ($(du -h "$CACHE_ZIP" | cut -f1)). Skipping download."
@@ -48,32 +62,40 @@ else
 set -eu
 pip install --quiet --user --no-warn-script-location 'gdown>=5'
 export PATH="/tmp/pip/bin:$PATH"
-gdown "$1" -O /cache/radar_h5.zip
-size=$(stat -c%s /cache/radar_h5.zip)
+gdown "$1" -O /cache/radar-sinarame.zip
+size=$(stat -c%s /cache/radar-sinarame.zip)
 echo "Downloaded $size bytes"
 if [ "$size" -lt 10000 ]; then
-    rm -f /cache/radar_h5.zip
-    echo "ERROR: download too small — Drive likely returned an HTML error page" >&2
-    echo "Check that the file is shared with 'Anyone with the link → Viewer'" >&2
+    rm -f /cache/radar-sinarame.zip
+    echo "ERROR: download too small. Drive likely returned an HTML error page" >&2
+    echo "Check that the file is shared with 'Anyone with the link, Viewer'" >&2
     exit 1
 fi
 EOF
 fi
 
-echo "Extracting into docker volume '$VOLUME'..."
+echo "Extracting into $RADAR_SINARAME_INPUT_DIR..."
 docker run --rm \
     -v "$CACHE_DIR:/cache:ro" \
-    -v "$VOLUME:/out" \
+    -v "$RADAR_SINARAME_INPUT_DIR:/out" \
     python:3.12-slim \
     sh -c '
 set -eu
-python -m zipfile -e /cache/radar_h5.zip /out
-H5_COUNT=$(find /out/radar_h5 -type f -name "*.H5" 2>/dev/null | wc -l)
-DATA_SIZE=$(du -sh /out/radar_h5 2>/dev/null | cut -f1)
-echo "Volume now has $H5_COUNT .H5 files ($DATA_SIZE) at /out/radar_h5/"
+rm -rf /tmp/radar-extract
+mkdir -p /tmp/radar-extract
+python -m zipfile -e /cache/radar-sinarame.zip /tmp/radar-extract
+if [ -d /tmp/radar-extract/radar-sinarame ]; then
+    cp -a /tmp/radar-extract/radar-sinarame/. /out/
+elif [ -d /tmp/radar-extract/radar_h5 ]; then
+    cp -a /tmp/radar-extract/radar_h5/. /out/
+else
+    cp -a /tmp/radar-extract/. /out/
+fi
+H5_COUNT=$(find /out -type f \( -name "*.H5" -o -name "*.h5" \) | wc -l)
+DATA_SIZE=$(du -sh /out | cut -f1)
+echo "Input directory now has $H5_COUNT H5 files ($DATA_SIZE)"
 '
 
 echo
 echo "Cached zip preserved at: $CACHE_ZIP"
-echo "If the stack is already running, restart the producer/workers so they pick it up:"
-echo "  docker compose restart producer worker1 worker2"
+echo "The producer will inspect the files on its next discovery tick."

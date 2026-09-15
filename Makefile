@@ -2,7 +2,7 @@
 
 SERVICES = data-service tiles-processor visualizer alerts-service
 
-.PHONY: setup update up down prod beta-1 beta-1-down clean pack-radar fetch-radar $(SERVICES)
+.PHONY: setup update up down prod beta1 beta1-down clean pack-radar fetch-radar $(SERVICES)
 
 setup:
 	@./scripts/setup-env.sh
@@ -19,25 +19,30 @@ prod: setup
 	@docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null
 	docker compose up --build
 
-# Beta-1: production variants for the three HTTP components plus the measured
-# light tiles-processor preset (one normal worker and one light worker).
-beta-1: setup
+# Beta-1 uses the production variants of the three HTTP components and the
+# light tiles-processor preset. The tiles override is included by the root file.
+beta1: setup
 	@docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null
 	docker compose -f compose.beta-1.yaml up --build
 
-beta-1-down:
+beta1-down:
 	docker compose -f compose.beta-1.yaml down --remove-orphans
 
 down:
 	docker compose down --remove-orphans
+	docker compose -f compose.beta-1.yaml down --remove-orphans
 
 # Pack the radar H5 dataset into a single zip ready to upload to Google Drive.
-# Usage: make pack-radar                                  (defaults to ../tiles-processor/data/radar_h5)
-#        make pack-radar SOURCE=/path/to/radar_h5 OUTPUT=/path/to/radar.zip
+# Usage: make pack-radar
+#        make pack-radar SOURCE=/path/to/radar-sinarame OUTPUT=/path/to/radar.zip
 pack-radar:
+	@if [ -z "$(SOURCE)" ]; then \
+		echo "Usage: make pack-radar SOURCE=/path/to/radar-sinarame [OUTPUT=/path/to/radar.zip]"; \
+		exit 1; \
+	fi
 	@./scripts/pack-radar.sh "$(SOURCE)" "$(OUTPUT)"
 
-# Download the radar dataset from Google Drive and extract into tiles-processor/data/radar_h5/.
+# Download the radar dataset from Google Drive into RADAR_SINARAME_INPUT_DIR.
 # Usage: make fetch-radar URL=https://drive.google.com/file/d/<id>/view
 fetch-radar:
 	@if [ -z "$(URL)" ]; then \
@@ -60,7 +65,7 @@ up: setup
 	done; \
 	wait
 
-# Individual service targets — bring up one submodule on its own (dev compose)
+# Individual service targets bring up one submodule with its development compose.
 data-service:
 	$(MAKE) -C data-service up
 

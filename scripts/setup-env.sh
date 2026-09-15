@@ -20,7 +20,7 @@ fi
 
 # 2. Always regenerate per-submodule .env files from root .env via envsubst.
 command -v envsubst >/dev/null || {
-    echo "envsubst not found — install GNU gettext (apt: gettext-base, fedora/arch: gettext)" >&2
+    echo "envsubst not found. Install GNU gettext (apt: gettext-base, fedora/arch: gettext)" >&2
     exit 1
 }
 
