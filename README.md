@@ -16,6 +16,22 @@ La documentación técnica completa se publica con el visualizador. La sección
 [Beta-1, el sistema completo y liviano](./visualizer/docs/tecnica/operacion/beta-1.md)
 explica el criterio con el que se armó este perfil.
 
+## Contenidos
+
+- [Requisitos](#requisitos)
+- [Primera puesta en marcha de Beta-1](#primera-puesta-en-marcha-de-beta-1)
+  - [Clonar la versión](#clonar-la-versión)
+  - [Preparar la configuración](#preparar-la-configuración)
+  - [Definir las entradas meteorológicas](#definir-las-entradas-meteorológicas)
+  - [Iniciar el sistema](#iniciar-el-sistema)
+- [Verificación](#verificación)
+- [Cambio de nombres de septiembre de 2026](#cambio-de-nombres-de-septiembre-de-2026)
+- [Coolify y las rutas de entrada](#coolify-y-las-rutas-de-entrada)
+- [Operación habitual](#operación-habitual)
+- [Datos históricos de radar](#datos-históricos-de-radar)
+- [Puertos y exposición](#puertos-y-exposición)
+- [Producción completa y desarrollo](#producción-completa-y-desarrollo)
+
 ## Requisitos
 
 La máquina debe tener Docker Engine, Docker Compose 2.20 o posterior, Git,
