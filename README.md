@@ -13,7 +13,7 @@ las API y permite generar avisos desde el visualizador. Para reducir el consumo,
 utiliza dos workers y habilita una selección acotada de productos.
 
 La documentación técnica completa se publica con el visualizador. La sección
-[Beta-1, el sistema completo y liviano](./visualizer/docs/tecnica/operacion/beta-1.md)
+[Beta-1, el sistema completo y liviano](https://github.com/fiuba-tp-g153-smn/visualizer/blob/main/docs/tecnica/operacion/beta-1.md)
 explica el criterio con el que se armó este perfil.
 
 ## Contenidos
