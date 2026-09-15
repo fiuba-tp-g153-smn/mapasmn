@@ -100,50 +100,67 @@ servidor donde corre MapaSMN.
 
 ### Definir las entradas meteorológicas
 
-El `tiles-processor` admite cuatro modos de entrada. El modo `local` lee una
-carpeta. El modo `s3` lee un bucket con la misma organización. ECMWF IFS y GFS
-pueden utilizar además sus proveedores públicos mediante
-`external-provider-opendata` y `external-provider-nomads`.
+El objetivo de Beta-1 es conectar la mayor cantidad posible de productos con las
+fuentes disponibles en la instalación. `settings-beta-1.json` define el modo y
+la ubicación de cada una. El archivo versionado constituye un punto de partida,
+no una decisión que deba conservarse en todos los servidores.
 
-Beta-1 utiliza S3 público para GOES-19 ABI, carpetas locales para GOES-19 GLM,
-radar SINARAME y WRF-ARG4K, y los proveedores públicos para ECMWF IFS y GFS.
-Docker Compose exige una ruta de host para las seis fuentes, aunque el modo
-elegido no lea esa carpeta. Las rutas deben ser absolutas y los directorios
-deben existir.
+| Fuente | Modo inicial | Qué debe revisar el operador |
+|---|---|---|
+| GOES-19 ABI | `s3` | Bucket público `noaa-goes19`, o un bucket propio con los mismos archivos |
+| GOES-19 GLM | `local` | Carpeta o bucket donde el SMN recibe los NetCDF de GLM |
+| Radar SINARAME | `local` | Carpeta o bucket con los H5 de la red seleccionada |
+| WRF-ARG4K | `local` | Carpeta o bucket con los archivos FIELD2D y FIELD3D |
+| ECMWF IFS | `external-provider-opendata` | Proveedor de Open Data, o una copia local o S3 |
+| GFS | `external-provider-nomads` | Endpoint NOMADS, o una copia local o S3 |
+
+Todos los productos habilitados deben quedar asociados con una fuente que el
+servidor pueda alcanzar. Para cada bloque de `sources` hay que elegir uno de los
+modos admitidos:
+
+- `local` lee una carpeta montada en el contenedor;
+- `s3` lee un bucket con la misma organización que la carpeta;
+- `external-provider-opendata` descarga ECMWF IFS desde Open Data;
+- `external-provider-nomads` descarga GFS mediante `grib_filter`.
+
+Una fuente en modo `local` necesita una variable `<PREFIX>_INPUT_DIR` en el
+`.env` generado para `tiles-processor` y un bind mount de sólo lectura en
+`docker-compose-beta-1.yaml`. La configuración inicial utiliza tres:
 
 ```dotenv
-GOES19_ABI_INPUT_DIR=/srv/mapasmn/input/goes19-abi
 GOES19_GLM_INPUT_DIR=/srv/mapasmn/input/goes19-glm
 RADAR_SINARAME_INPUT_DIR=/srv/mapasmn/input/radar-sinarame
 WRF_ARG4K_INPUT_DIR=/srv/mapasmn/input/wrf-arg4k
-ECMWF_IFS_INPUT_DIR=/srv/mapasmn/input/ecmwf-ifs
-GFS_INPUT_DIR=/srv/mapasmn/input/gfs
 ```
 
-Una forma de crear la estructura inicial es:
+```yaml
+x-input-volumes: &input-volumes
+  - ./data:/app/data
+  - ${GOES19_GLM_INPUT_DIR}:/app/data/goes19-glm:ro
+  - ${RADAR_SINARAME_INPUT_DIR}:/app/data/radar-sinarame:ro
+  - ${WRF_ARG4K_INPUT_DIR}:/app/data/wrf-arg4k:ro
+```
+
+Las rutas del host deben ser absolutas y existir antes del arranque. Docker
+crea una carpeta vacía cuando el origen no existe, lo que puede dejar al
+productor funcionando sin descubrir archivos. Con los valores anteriores:
 
 ```sh
-sudo mkdir -p /srv/mapasmn/input/goes19-abi
 sudo mkdir -p /srv/mapasmn/input/goes19-glm
 sudo mkdir -p /srv/mapasmn/input/radar-sinarame
 sudo mkdir -p /srv/mapasmn/input/wrf-arg4k
-sudo mkdir -p /srv/mapasmn/input/ecmwf-ifs
-sudo mkdir -p /srv/mapasmn/input/gfs
 ```
 
-Los procesos del SMN que reciben GLM, radar y WRF deben copiar cada archivo en
-la carpeta correspondiente. El productor revisa las fuentes cada cinco minutos,
-por lo que no es necesario reiniciar los contenedores cuando ingresa un archivo.
-Conviene completar la copia con un nombre temporal y renombrarlo al final. De
-esta forma, el productor no puede abrir un archivo incompleto.
+Si otra fuente cambia a `local`, se debe agregar su variable y su mount en el
+mismo cambio. Si una de estas tres cambia a S3, se debe eliminar su mount y su
+variable de carpeta. De esta manera, el Compose representa la configuración que
+se ejecuta y no exige directorios que el procesador nunca va a leer.
 
-Las carpetas físicas pueden conservar sus nombres anteriores durante una
-actualización. Por ejemplo, la nueva variable `RADAR_SINARAME_INPUT_DIR` puede
-apuntar a una carpeta existente llamada `radar_h5`. Lo que cambió es el nombre
-con el que el procesador reconoce la fuente dentro del contenedor.
-
-Una fuente configurada en modo `s3` puede usar credenciales propias. Cada par se
-deja vacío para acceso anónimo o se completa en su totalidad:
+Una fuente en modo `s3` define `s3_bucket` y, cuando corresponde,
+`s3_endpoint`, `s3_prefix`, `s3_region`, `s3_secure` y
+`s3_addressing_style` dentro de `settings-beta-1.json`. El bucket puede
+expresarse como nombre o como `s3://bucket/prefix`. Las credenciales se cargan
+en el `.env` mediante un par propio por fuente:
 
 ```dotenv
 GOES19_ABI_S3_ACCESS_KEY=
@@ -159,6 +176,22 @@ ECMWF_IFS_S3_SECRET_KEY=
 GFS_S3_ACCESS_KEY=
 GFS_S3_SECRET_KEY=
 ```
+
+Los dos valores de un par se dejan vacíos para acceso anónimo o se completan en
+conjunto. Una sola mitad configurada hace fallar el arranque. Esta separación
+permite conectar, por ejemplo, ABI al bucket público de NOAA, radar a un S3
+interno y GLM a una carpeta de red sin compartir credenciales ni asumir que los
+datos viven en el mismo disco.
+
+Los procesos que alimentan una carpeta local deben terminar la copia antes de
+publicar el nombre definitivo. Una práctica segura es escribir con un nombre
+temporal y renombrar el archivo al final. El productor revisa las fuentes cada
+cinco minutos y no necesita reiniciarse ante cada ingreso.
+
+Las carpetas físicas pueden conservar sus nombres anteriores durante una
+actualización. Por ejemplo, `RADAR_SINARAME_INPUT_DIR` puede apuntar a una
+carpeta existente llamada `radar_h5`. El mount la presenta dentro del contenedor
+con el nombre canónico `/app/data/radar-sinarame`.
 
 Después de completar el `.env`, se deben regenerar las configuraciones:
 
