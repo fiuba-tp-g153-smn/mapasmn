@@ -4,9 +4,13 @@ Este repositorio reúne los cuatro componentes de MapaSMN y fija la versión de 
 
 El perfil recomendado para una primera instalación es Beta-1. Fue preparado para una máquina virtual con 8 GB de memoria y mantiene el circuito completo del sistema. Recibe datos meteorológicos reales, los procesa, los publica mediante las API y permite generar avisos desde el visualizador. Para reducir el consumo, utiliza dos workers y habilita una selección acotada de productos.
 
-El perfil productivo ejecuta el catálogo completo y utiliza cinco workers de procesamiento. Para levantar todos los servicios con caché se esperan al menos 8 cores y 24 GB de RAM. Se inicia con `make prod` y permite utilizar tanto el MySQL incluido como una instancia del organismo. El procedimiento se detalla en la [guía de despliegue productivo](./production.md).
+El perfil productivo ejecuta el catálogo completo y utiliza cinco workers de procesamiento. Para levantar todos los servicios con caché se esperan al menos 8 cores y 24 GB de RAM. Se inicia con `make prod` y permite utilizar tanto el MySQL incluido como una instancia del organismo. El procedimiento se detalla en la [guía de despliegue productivo](./despliegue-a-produccion.md).
 
 La documentación técnica completa se publica con el visualizador. La sección [Beta-1, el sistema completo y liviano](https://github.com/fiuba-tp-g153-smn/visualizer/blob/main/docs/tecnica/operacion/beta-1.md) explica el criterio con el que se armó este perfil.
+
+<p align="center">
+    <img src="./docs/general_diagram.jpg" alt="General data flow between all the services" height="700px">
+</p>
 
 ## Contenidos
 
@@ -17,14 +21,13 @@ La documentación técnica completa se publica con el visualizador. La sección 
   - [Definir las entradas meteorológicas](#definir-las-entradas-meteorológicas)
   - [Iniciar el sistema](#iniciar-el-sistema)
 - [Verificación](#verificación)
-- [Cambio de nombres de septiembre de 2026](#cambio-de-nombres-de-septiembre-de-2026)
 - [Operación habitual](#operación-habitual)
 - [Puertos y exposición](#puertos-y-exposición)
 - [Producción completa y desarrollo](#producción-completa-y-desarrollo)
 
 ## Requisitos
 
-La máquina debe tener Docker Engine, Docker Compose 2.20 o posterior, Git, `make`, un shell POSIX y `envsubst`, incluido en GNU gettext. También necesita espacio para los datos crudos, el almacén de objetos, Redis y MySQL. La ejecución productiva de todos los servicios con caché requiere al menos 8 cores y 24 GB de RAM. El perfil productivo utiliza además `!override` y se verificó con Compose 2.40.3; sus requisitos se detallan en la [guía de producción](./production.md).
+La máquina debe tener Docker Engine, Docker Compose 2.20 o posterior, Git, `make`, un shell POSIX y `envsubst`, incluido en GNU gettext. También necesita espacio para los datos crudos, el almacén de objetos, Redis y MySQL. La ejecución productiva de todos los servicios con caché requiere al menos 8 cores y 24 GB de RAM, sus requisitos se detallan en la [guía de producción](./despliegue-a-produccion.md).
 
 En Debian o Ubuntu, las herramientas auxiliares se instalan con:
 
@@ -60,7 +63,7 @@ make setup
 
 El operador sólo debe editar el `.env` de la raíz. Los archivos `.env` de los submódulos se generan de nuevo con cada ejecución de `make setup`.
 
-Antes de iniciar el sistema se deben reemplazar la contraseña compartida de los servicios internos, las credenciales del SMN y las direcciones que utilizará el navegador. `DEV_PASSWORD` conserva su nombre por compatibilidad y se utiliza como contraseña compartida de las cuentas internas, también en producción: SeaweedFS, RabbitMQ, la pasarela de métricas, Redis, MySQL incluido y la administración de estaciones. Las credenciales del MySQL externo y de la API del SMN se configuran por separado. Se inserta en comandos y en SQL, por lo que no puede contener espacios, comillas ni `$`; `python -c 'import secrets; print(secrets.token_urlsafe(32))'` genera una válida. Un ejemplo mínimo es el siguiente:
+Antes de iniciar el sistema se deben reemplazar la contraseña compartida de los servicios internos, las credenciales del SMN y las direcciones que utilizará el navegador. `DEV_PASSWORD` se utiliza como contraseña compartida de las cuentas internas, también en producción: SeaweedFS, RabbitMQ, la pasarela de métricas, Redis, MySQL incluido y la administración de estaciones. Las credenciales del MySQL externo y de la API del SMN se configuran por separado. Se inserta en comandos y en SQL, por lo que no puede contener espacios, comillas ni `$`; `python -c 'import secrets; print(secrets.token_urlsafe(32))'` genera una válida. Un ejemplo mínimo es el siguiente:
 
 ```dotenv
 APP_ENV=production
@@ -190,27 +193,6 @@ docker compose -f compose.beta-1.yaml logs -f producer
 
 Cada fuente informa su modo, el directorio interno y si encontró archivos. Un tick sano que sólo publica ABI no demuestra que las entradas locales estén bien montadas. GLM, radar y WRF deben aparecer en ese resumen cuando sus carpetas contienen datos.
 
-## Cambio de nombres de septiembre de 2026
-
-La versión actual adoptó un mismo criterio para los identificadores, las rutas HTTP y el almacenamiento. Los nombres distinguen la plataforma, el instrumento y el producto. Esta distinción evita que `goes19` represente al mismo tiempo un satélite y una familia de imágenes, y deja lugar para incorporar otros radares o modelos sin volver a modificar los contratos existentes.
-
-Algunos ejemplos del cambio son:
-
-| Familia | Nombre anterior | Nombre actual |
-|---|---|---|
-| GOES-19 ABI | `band_13` | `goes19/abi/c13` |
-| GOES-19 GLM | `glm_folder_fed` | `goes19/glm/fed` |
-| Radar | `tiles/radar` | `tiles/radar/sinarame` |
-| WRF | `tiles/wrf` | `tiles/wrf-arg4k` |
-| ECMWF | `tiles/models/ecmwf` | `tiles/ecmwf-ifs` |
-| GFS 500 hPa | `tiles/models/gfs/500hpa` | `tiles/gfs/geopotential-500hpa` |
-
-La actualización es un corte coordinado. `tiles-processor` escribe las nuevas rutas, `data-service` las lee y `visualizer` solicita las nuevas rutas HTTP. No se deben desplegar revisiones incompatibles de estos componentes.
-
-Los objetos que ya estaban almacenados no requieren migración ni borrado. SeaweedFS conserva el vencimiento asignado en el momento de la escritura y los elimina según la retención original. Como consecuencia visible, el historial de animación queda vacío durante el cambio y vuelve a completarse con los productos nuevos. GOES-19 necesita cerca de cuatro horas para reconstruir sus 24 capturas.
-
-También cambiaron las variables de credenciales y los nombres internos de las carpetas. Un despliegue anterior debe revisar scripts, tareas programadas y montajes que todavía mencionen `GOES19_S3`, `GLM_FOLDER_S3`, `RADAR_S3`, `WRF_S3`, `glm_h5`, `radar_h5` o `wrf_nc`.
-
 ## Operación habitual
 
 ```sh
@@ -252,8 +234,17 @@ Beta-1 publica los puertos indicados en la tabla. El perfil productivo publica l
 
 ## Producción completa y desarrollo
 
-`make prod` inicia el perfil completo con cinco workers y los productos definidos en `tiles-processor/settings.json`. Utiliza las cuatro carpetas del `.env` y aplica la configuración de producción sobre los Compose de los componentes, reemplazando las rutas del VPS. Los servicios HTTP se acceden mediante los puertos configurados del servidor y la infraestructura permanece en redes internas. Los contenedores se ejecutan en segundo plano. La variable `MYSQL_MODE` permite elegir entre MySQL incluido (`bundled`) o el servidor del organismo (`external`); ambos se inician con `make prod`. Las credenciales y los requisitos del modo externo se detallan en la guía productiva.
+`make prod` inicia el perfil completo con cinco workers y los productos definidos en `tiles-processor/settings.json`. Utiliza las cuatro carpetas del `.env` y aplica la configuración de producción sobre los Compose de los componentes, reemplazando las [rutas del despliegue original](./despliegue-a-produccion.md#rutas-del-despliegue-original). Los servicios HTTP se acceden mediante los puertos configurados del servidor y la infraestructura permanece en redes internas. Los contenedores se ejecutan en segundo plano. La variable `MYSQL_BUNDLED_MODE` permite elegir entre MySQL incluido (`true`) o el servidor del organismo (`false`); ambos se inician con `make prod`. Las credenciales y los requisitos del modo externo se detallan en la guía productiva.
 
-La [guía de despliegue productivo](./production.md) describe la instalación mediante Docker Compose CLI y su configuración de red y persistencia.
+La [guía de despliegue productivo](./despliegue-a-produccion.md) describe la instalación mediante Docker Compose CLI y su configuración de red y persistencia.
 
-`make up` inicia los cuatro entornos de desarrollo. Cada componente conserva su propio Compose y sus herramientas de recarga. Este comando sirve para trabajar sobre el código y no constituye un procedimiento de despliegue.
+`make up` inicia en paralelo los entornos de desarrollo de los cuatro componentes mediante sus archivos Compose:
+
+| Componente | Entorno de desarrollo |
+|---|---|
+| `tiles-processor` | Productor, workers, API de métricas, RabbitMQ y SeaweedFS para probar el procesamiento de datos meteorológicos. |
+| `data-service` | API de datos y sincronizador con Redis, código montado desde el repositorio y recarga automática. |
+| `alerts-service` | API de generación de avisos y MySQL local, código montado desde el repositorio y recarga automática. |
+| `visualizer` | Servidor de desarrollo Angular en el puerto `4200`, con recarga automática y compilación inicial de la documentación. |
+
+Estos entornos permiten modificar y probar los componentes localmente. Los cambios de código del procesador requieren reconstruir su imagen. Para instalar el sistema se utiliza `make beta1` o `make prod`.

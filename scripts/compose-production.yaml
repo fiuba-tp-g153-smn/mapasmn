@@ -4,7 +4,7 @@
 # This replaces the VPS-specific input mounts, connects data-service directly
 # to SeaweedFS, and publishes HTTP services on the configured host ports.
 # Infrastructure stays on Docker networks; a reverse proxy is optional.
-# See production.md.
+# See despliegue-a-produccion.md.
 
 x-production-inputs: &production-inputs
   - type: bind

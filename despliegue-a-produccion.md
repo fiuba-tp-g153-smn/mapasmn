@@ -2,14 +2,28 @@
 
 El perfil de producción ejecuta los cuatro componentes de MapaSMN con el catálogo completo de productos y cinco workers de procesamiento. La instalación se configura desde el `.env` de la raíz y se inicia con `make prod`, siguiendo el mismo esquema de trabajo que Beta-1.
 
+## Contenidos
+
+- [Requisitos](#requisitos)
+- [1. Obtener el sistema](#1-obtener-el-sistema)
+- [2. Preparar la configuración](#2-preparar-la-configuración)
+  - [MySQL incluido](#mysql-incluido)
+  - [MySQL del SMN](#mysql-del-smn)
+- [3. Indicar dónde están los datos meteorológicos](#3-indicar-dónde-están-los-datos-meteorológicos)
+  - [Rutas del despliegue original](#rutas-del-despliegue-original)
+- [4. Iniciar el sistema](#4-iniciar-el-sistema)
+- [5. Verificar la instalación](#5-verificar-la-instalación)
+- [Operación habitual](#operación-habitual)
+- [Respaldo y documentación técnica](#respaldo-y-documentación-técnica)
+
 ## Requisitos
 
-El servidor necesita Linux, Docker Engine, Git, `make` y `envsubst`, incluido en GNU gettext. La composición se verificó con Docker Compose 2.40.3 y utiliza la etiqueta `!override`, que debe estar disponible en la versión instalada.
+El servidor necesita Linux, Docker Engine, Git, `make` y `envsubst`, incluido en GNU gettext.
 
 Además, la instalación requiere:
 
 - Al menos 8 cores y 24 GB de RAM para ejecutar todos los servicios con caché, además de almacenamiento suficiente para entradas, productos y bases de datos.
-- Acceso a NOAA, ECMWF, NOMADS, IGN y la API del SMN, junto con los feeds locales de GLM, SINARAME, INTA y WRF.
+- Acceso a NOAA, ECMWF, NOMADS, IGN y la API del SMN. Los archivos de GLM, SINARAME, INTA y WRF deben estar disponibles según se describe en el paso 3.
 
 En Debian o Ubuntu, las herramientas auxiliares se instalan con:
 
@@ -74,7 +88,7 @@ La instalación puede incorporar un proxy inverso y HTTPS según su infraestruct
 La opción predeterminada utiliza la instancia MySQL de la composición y conserva sus datos en `mysql_data`. No requiere configurar otra conexión:
 
 ```dotenv
-MYSQL_MODE=bundled
+MYSQL_BUNDLED_MODE=true
 ```
 
 En este modo, la contraseña de MySQL sigue siendo `DEV_PASSWORD` y `MANAGE_DB_SCHEMAS=true` permite preparar el esquema local. Beta-1 conserva esta configuración predeterminada. Editar una contraseña en el `.env` no cambia las cuentas que ya existen en MySQL; su rotación se realiza sobre la base y sus consumidores.
@@ -84,7 +98,7 @@ En este modo, la contraseña de MySQL sigue siendo `DEV_PASSWORD` y `MANAGE_DB_S
 Para utilizar el servidor del organismo, se selecciona el modo externo y se completan las conexiones de escritura y lectura con las credenciales asignadas:
 
 ```dotenv
-MYSQL_MODE=external
+MYSQL_BUNDLED_MODE=false
 MYSQL_HOST=mysql.smn.example.org
 MYSQL_PORT=3306
 MYSQL_DATABASE=<base-de-avisos>
@@ -101,9 +115,26 @@ La lectura de `taviso` utiliza por defecto el mismo host, puerto y base. Si el o
 
 En ambos casos se ejecuta `make prod`. El modo externo excluye el contenedor MySQL y su volumen del despliegue y no ejecuta migraciones sobre la base institucional. El cambio de instancia no traslada los datos existentes: se realiza con la instalación detenida, un respaldo y el procedimiento de transferencia acordado con el administrador de la base.
 
-## 3. Conectar las fuentes meteorológicas
+## 3. Indicar dónde están los datos meteorológicos
 
-Los cuatro directorios deben existir antes del arranque. Con las rutas del ejemplo:
+Para generar las capas del mapa, MapaSMN necesita acceder a los archivos meteorológicos originales. Con la configuración incluida, obtiene automáticamente GOES-19 ABI desde NOAA, ECMWF desde Open Data y GFS desde NOMADS.
+
+Los datos de GLM, SINARAME, INTA y WRF deben estar disponibles en el servidor donde se instala el sistema. Los aporta el SMN mediante sus procesos de recepción o generación de datos. Las cuatro variables del `.env` indican en qué carpeta debe buscarlos MapaSMN:
+
+| Fuente | Variable del `.env` | Archivos que debe contener la carpeta |
+|---|---|---|
+| Descargas eléctricas GLM | `GOES19_GLM_INPUT_DIR` | NetCDF pregrillados con nombres `CG_GLM-L2-GLMF-*.nc`. |
+| Radares SINARAME | `RADAR_SINARAME_INPUT_DIR` | Volúmenes de radar en archivos `.H5` o `.h5`. |
+| Radares INTA | `RADAR_INTA_INPUT_DIR` | Volúmenes Rainbow5 en archivos `.vol` o `.VOL`. |
+| Modelo WRF-ARG4K | `WRF_ARG4K_INPUT_DIR` | Archivos `WRF_ARG4K.FCST_L0_FIELD2D.*.nc` y sus `FIELD3D` correspondientes para los productos que los requieren. |
+
+Si esos archivos ya se reciben en carpetas del servidor, se utilizan sus rutas absolutas en el `.env`. Por ejemplo, si los datos SINARAME están en `/datos/radares/sinarame`, se configura:
+
+```dotenv
+RADAR_SINARAME_INPUT_DIR=/datos/radares/sinarame
+```
+
+Las rutas `/srv/mapasmn/input/...` del ejemplo son una propuesta de organización. Si se decide utilizarlas, se crean antes del arranque:
 
 ```sh
 sudo mkdir -p /srv/mapasmn/input/goes19-glm
@@ -112,9 +143,21 @@ sudo mkdir -p /srv/mapasmn/input/radar-inta
 sudo mkdir -p /srv/mapasmn/input/wrf-arg4k
 ```
 
-Los procesos que reciben los feeds escriben en esas carpetas. Los contenedores las leen mediante montajes de sólo lectura. La escritura con un nombre temporal y el renombrado al finalizar la copia evitan que el productor encuentre archivos incompletos.
+Crear las carpetas no descarga ni genera esos datos. El proceso que los recibe debe dejarlos en la ubicación elegida y mantenerlos actualizados. Los archivos se conservan con sus nombres originales y pueden estar directamente en la carpeta o en subcarpetas de un nivel. La copia debe finalizar antes de que el archivo quede disponible para su lectura.
 
-GOES-19 ABI se obtiene desde el bucket público de NOAA; ECMWF y GFS utilizan sus proveedores externos. Los modos y productos se definen en `tiles-processor/settings.json`, que se incorpora a la imagen. Una modificación de las fuentes también requiere revisar sus montajes y credenciales.
+Una vez iniciado, MapaSMN revisa las fuentes cada cinco minutos y procesa los archivos recientes que encuentra. Si una carpeta permanece vacía, las capas de esa fuente no tendrán datos. La recepción y el descubrimiento se comprueban en los registros del productor:
+
+```sh
+docker compose logs -f producer
+```
+
+Esta sección describe la entrada mediante carpetas. Si los datos del organismo están en buckets S3, el perfil debe configurarse para leerlos desde allí. Los formatos y las opciones de entrada se detallan en la [configuración del procesador](./tiles-processor/README.md#settings-configuration-settingsjson).
+
+### Rutas del despliegue original
+
+Durante el desarrollo y la validación, el equipo desplegó el sistema en un servidor virtual privado (VPS) administrado con Coolify. El archivo `tiles-processor/docker-compose.yaml` conserva rutas absolutas de ese servidor para localizar los datos meteorológicos de entrada.
+
+`mapasmn` reutiliza ese archivo, pero `make prod` aplica `scripts/compose-production.yaml` para sustituir esas ubicaciones por las cuatro carpetas configuradas en el `.env` de la instalación. Por eso la documentación menciona el reemplazo de las rutas del VPS: el operador configura sus propias carpetas, sin reproducir la estructura del servidor original ni editar el Compose del componente.
 
 ## 4. Iniciar el sistema
 
