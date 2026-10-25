@@ -76,8 +76,12 @@ El operador sólo debe editar el `.env` de la raíz. Los archivos `.env` de los
 submódulos se generan de nuevo con cada ejecución de `make setup`.
 
 Antes de iniciar el sistema se deben reemplazar la contraseña de desarrollo, las
-credenciales del SMN y las direcciones que utilizará el navegador. Un ejemplo
-mínimo es el siguiente:
+credenciales del SMN y las direcciones que utilizará el navegador.
+`DEV_PASSWORD` es la clave de todas las cuentas internas: SeaweedFS, RabbitMQ,
+la pasarela de métricas, Redis, MySQL y la administración de estaciones. Se
+inserta en comandos y en SQL, por lo que no puede contener espacios, comillas
+ni `$`; `python -c 'import secrets; print(secrets.token_urlsafe(32))'` genera
+una válida. Un ejemplo mínimo es el siguiente:
 
 ```dotenv
 APP_ENV=production
@@ -91,15 +95,6 @@ DATA_SERVICE_BASE_URL=https://data.example.org
 ALERTS_SERVICE_BASE_URL=https://alerts.example.org
 METRICS_SERVICE_BASE_URL=https://metrics.example.org
 DOCS_URL=/docs-site
-```
-
-`DEV_PASSWORD` protege también a Redis: `data-service` la recibe como
-`REDIS_PASSWORD` y el servidor la exige con `--requirepass`. Como se inserta en
-la línea de comandos de Redis, no puede contener espacios, comillas ni `$`. Una
-forma de generarla es:
-
-```sh
-python -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
 Las tres direcciones de servicios quedan incorporadas al visualizador durante
@@ -218,8 +213,7 @@ make beta1
 
 El comando construye las imágenes y levanta doce contenedores. El procesador
 aporta RabbitMQ, SeaweedFS, el productor, un worker normal, un worker liviano y
-la API de métricas. `data-service` aporta Redis con contraseña, la API y el
-sincronizador.
+la API de métricas. `data-service` aporta Redis, la API y el sincronizador.
 `alerts-service` aporta MySQL y la aplicación. El último contenedor sirve el
 visualizador junto con esta documentación.
 
@@ -316,16 +310,13 @@ Para instalar una nueva revisión fijada por este repositorio:
 ```sh
 git pull --ff-only
 git submodule update --init --recursive
+make setup
 make beta1
 ```
 
-Desde que Redis exige contraseña, el `.env` de `data-service` debe incluir
-`REDIS_PASSWORD`. `make beta1` lo regenera con `make setup`, pero
-`make beta1-down`, `make down` y `docker compose` no lo hacen. Al actualizar
-una instalación anterior, se debe ejecutar `make setup` antes de cualquiera de
-esos comandos; de lo contrario, Docker Compose se detiene con
-`set REDIS_PASSWORD in .env`. El siguiente `make beta1` recrea el contenedor de
-Redis con la contraseña y conserva su volumen y sus datos.
+`make setup` regenera los `.env` de los submódulos con las variables que espera
+la nueva revisión. `make beta1` también lo ejecuta, pero `make beta1-down`,
+`make down` y `docker compose` leen esos archivos tal como están.
 
 `make update` tiene un propósito diferente. Avanza los submódulos a la punta de
 sus ramas remotas y se utiliza al preparar una nueva versión de `mapasmn`. Una
