@@ -7,25 +7,25 @@ set -a
 set +a
 
 # External databases are provisioned by the institution, never by this stack.
-case "$MYSQL_MODE" in
-    bundled)
+case "$MYSQL_BUNDLED_MODE" in
+    true)
         export MYSQL_PASSWORD="$DEV_PASSWORD"
         ;;
-    external)
+    false)
         if [ -z "$MYSQL_HOST" ] || [ "$MYSQL_HOST" = mysql ]; then
-            echo "MYSQL_MODE=external requires MYSQL_HOST pointing to the external server" >&2
+            echo "MYSQL_BUNDLED_MODE=false requires MYSQL_HOST pointing to the external server" >&2
             exit 1
         fi
         : "${MYSQL_PASSWORD:?set MYSQL_PASSWORD for the external write connection}"
         : "${MYSQL_TAVISO_USER:?set MYSQL_TAVISO_USER for the external read connection}"
         : "${MYSQL_TAVISO_PASSWORD:?set MYSQL_TAVISO_PASSWORD for the external read connection}"
         if [ "$MANAGE_DB_SCHEMAS" != false ]; then
-            echo "MYSQL_MODE=external requires MANAGE_DB_SCHEMAS=false" >&2
+            echo "MYSQL_BUNDLED_MODE=false requires MANAGE_DB_SCHEMAS=false" >&2
             exit 1
         fi
         ;;
     *)
-        echo "MYSQL_MODE must be bundled or external" >&2
+        echo "MYSQL_BUNDLED_MODE must be true or false" >&2
         exit 1
         ;;
 esac

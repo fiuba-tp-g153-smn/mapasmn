@@ -18,7 +18,7 @@ update:
 # shared scratch at startup. Existing jobs must be drained before an update.
 prod: setup
 	@set -eu; ROOT_DIR="$(CURDIR)"; . ./scripts/load-env.sh; \
-	if [ "$$MYSQL_MODE" = external ]; then \
+	if [ "$$MYSQL_BUNDLED_MODE" = false ]; then \
 		set -- -f scripts/compose-mysql-external.yaml; \
 	else \
 		set --; \

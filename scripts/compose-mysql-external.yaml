@@ -1,4 +1,4 @@
-# Applied by `make prod` only when MYSQL_MODE=external.
+# Applied by `make prod` only when MYSQL_BUNDLED_MODE=false.
 # The institution manages the database schema and its backups.
 services:
   mysql: !reset null
