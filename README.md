@@ -93,6 +93,15 @@ METRICS_SERVICE_BASE_URL=https://metrics.example.org
 DOCS_URL=/docs-site
 ```
 
+`DEV_PASSWORD` protege también a Redis: `data-service` la recibe como
+`REDIS_PASSWORD` y el servidor la exige con `--requirepass`. Como se inserta en
+la línea de comandos de Redis, no puede contener espacios, comillas ni `$`. Una
+forma de generarla es:
+
+```sh
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
 Las tres direcciones de servicios quedan incorporadas al visualizador durante
 la construcción. Deben ser accesibles desde la computadora del usuario. Si el
 mapa se abre desde otra máquina, `localhost` apunta a esa máquina y no al
@@ -209,7 +218,8 @@ make beta1
 
 El comando construye las imágenes y levanta doce contenedores. El procesador
 aporta RabbitMQ, SeaweedFS, el productor, un worker normal, un worker liviano y
-la API de métricas. `data-service` aporta Redis, la API y el sincronizador.
+la API de métricas. `data-service` aporta Redis con contraseña, la API y el
+sincronizador.
 `alerts-service` aporta MySQL y la aplicación. El último contenedor sirve el
 visualizador junto con esta documentación.
 
@@ -308,6 +318,14 @@ git pull --ff-only
 git submodule update --init --recursive
 make beta1
 ```
+
+Desde que Redis exige contraseña, el `.env` de `data-service` debe incluir
+`REDIS_PASSWORD`. `make beta1` lo regenera con `make setup`, pero
+`make beta1-down`, `make down` y `docker compose` no lo hacen. Al actualizar
+una instalación anterior, se debe ejecutar `make setup` antes de cualquiera de
+esos comandos; de lo contrario, Docker Compose se detiene con
+`set REDIS_PASSWORD in .env`. El siguiente `make beta1` recrea el contenedor de
+Redis con la contraseña y conserva su volumen y sus datos.
 
 `make update` tiene un propósito diferente. Avanza los submódulos a la punta de
 sus ramas remotas y se utiliza al preparar una nueva versión de `mapasmn`. Una
