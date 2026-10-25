@@ -1,0 +1,13 @@
+# Applied by `make prod` only when MYSQL_MODE=external.
+# The institution manages the database schema and its backups.
+services:
+  mysql: !reset null
+  alerts-service:
+    depends_on: !reset {}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      MANAGE_DB_SCHEMAS: "false"
+
+volumes:
+  mysql_data: !reset null

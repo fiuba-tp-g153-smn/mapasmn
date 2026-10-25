@@ -24,10 +24,14 @@ command -v envsubst >/dev/null || {
     exit 1
 }
 
-set -a
-. "$ROOT_DIR/.env.example"
-. "$ROOT_DIR/.env"
-set +a
+. "$ROOT_DIR/scripts/load-env.sh"
+
+# Keep literal password characters when Compose reads the generated .env.
+escape_dotenv_password() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"
+}
+export MYSQL_PASSWORD_DOTENV="$(escape_dotenv_password "$MYSQL_PASSWORD")"
+export MYSQL_TAVISO_PASSWORD_DOTENV="$(escape_dotenv_password "$MYSQL_TAVISO_PASSWORD")"
 
 for service in data-service tiles-processor alerts-service visualizer; do
     tpl="$ROOT_DIR/scripts/env-templates/$service.env"

@@ -1,0 +1,77 @@
+# Production configuration applied by `make prod` after compose.yaml.
+# Docker Compose CLI: validated with 2.40.3, requires !override support.
+#
+# This replaces the VPS-specific input mounts, connects data-service directly
+# to SeaweedFS, and publishes HTTP services on the configured host ports.
+# Infrastructure stays on Docker networks; a reverse proxy is optional.
+# See docs/operacion/produccion.md.
+
+x-production-inputs: &production-inputs
+  - type: bind
+    source: ${GOES19_GLM_INPUT_DIR:?set GOES19_GLM_INPUT_DIR}
+    target: /app/data/goes19-glm
+    read_only: true
+    bind:
+      create_host_path: false
+  - type: bind
+    source: ${RADAR_SINARAME_INPUT_DIR:?set RADAR_SINARAME_INPUT_DIR}
+    target: /app/data/radar-sinarame
+    read_only: true
+    bind:
+      create_host_path: false
+  - type: bind
+    source: ${RADAR_INTA_INPUT_DIR:?set RADAR_INTA_INPUT_DIR}
+    target: /app/data/radar-inta
+    read_only: true
+    bind:
+      create_host_path: false
+  - type: bind
+    source: ${WRF_ARG4K_INPUT_DIR:?set WRF_ARG4K_INPUT_DIR}
+    target: /app/data/wrf-arg4k
+    read_only: true
+    bind:
+      create_host_path: false
+
+services:
+  rabbitmq:
+    ports: !override []
+  seaweedfs:
+    ports: !override []
+    networks:
+      - default
+      - data_service_network
+  mysql:
+    ports: !override []
+  producer:
+    volumes: *production-inputs
+  worker1:
+    volumes: *production-inputs
+  worker2:
+    volumes: *production-inputs
+  worker-light1:
+    volumes: *production-inputs
+  worker-light2:
+    volumes: *production-inputs
+  worker-light3:
+    volumes: *production-inputs
+  data-service-api:
+    environment:
+      S3_TILES_DATA_ENDPOINT: seaweedfs:8333
+    ports: !override
+      - "${DATA_SERVICE_APP_HOST_PORT:-6006}:8080"
+  data-service-sync:
+    environment:
+      S3_TILES_DATA_ENDPOINT: seaweedfs:8333
+  alerts-service:
+    stop_grace_period: 3m
+    networks:
+      - alerts_service_network
+      - default
+    ports: !override
+      - "${ALERTS_SERVICE_APP_HOST_PORT:-6007}:8080"
+  metrics-api:
+    ports: !override
+      - "${METRICS_API_PORT:-6020}:6020"
+  visualizer:
+    ports: !override
+      - "${VISUALIZER_APP_HOST_PORT:-6010}:80"

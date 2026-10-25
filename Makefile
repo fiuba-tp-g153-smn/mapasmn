@@ -1,6 +1,7 @@
 # Root Makefile for orchestrating all services
 
 SERVICES = data-service tiles-processor visualizer alerts-service
+PROD_COMPOSE = docker compose -f compose.yaml -f scripts/compose-production.yaml
 
 .PHONY: setup update up down prod beta1 beta1-down clean pack-radar fetch-radar $(SERVICES)
 
@@ -12,17 +13,26 @@ setup:
 update:
 	@git submodule update --init --recursive --remote
 
-# Production (single-compose): root compose.yaml `include:`s every submodule's docker-compose.yaml.
-# data-service/docker-compose.yaml expects `data_service_network` to exist (external: true),
-# so create it idempotently before bringing the stack up.
+# Full production: portable input mounts and private infrastructure ports.
+# Initialize all workers before the producer can enqueue work: workers clean
+# shared scratch at startup. Existing jobs must be drained before an update.
 prod: setup
-	@docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null
-	docker compose up --build
+	@set -eu; ROOT_DIR="$(CURDIR)"; . ./scripts/load-env.sh; \
+	if [ "$$MYSQL_MODE" = external ]; then \
+		set -- -f scripts/compose-mysql-external.yaml; \
+	else \
+		set --; \
+	fi; \
+	$(PROD_COMPOSE) "$$@" config --quiet; \
+	docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null; \
+	$(PROD_COMPOSE) "$$@" up -d --build --wait --wait-timeout 900 rabbitmq seaweedfs redis data-service-api data-service-sync alerts-service metrics-api worker1 worker2 worker-light1 worker-light2 worker-light3; \
+	$(PROD_COMPOSE) "$$@" up -d --build --wait --wait-timeout 300 producer visualizer
 
 # Beta-1 uses the production variants of the three HTTP components and the
 # light tiles-processor preset. The tiles override is included by the root file.
 beta1: setup
-	@docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null
+	@set -eu; ROOT_DIR="$(CURDIR)"; . ./scripts/load-env.sh; \
+	docker network inspect data_service_network >/dev/null 2>&1 || docker network create data_service_network >/dev/null; \
 	docker compose -f compose.beta-1.yaml up --build
 
 beta1-down:
