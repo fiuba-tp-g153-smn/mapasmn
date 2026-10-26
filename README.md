@@ -19,6 +19,7 @@ La documentación técnica completa se publica con el visualizador. La sección 
   - [Clonar la versión](#clonar-la-versión)
   - [Preparar la configuración](#preparar-la-configuración)
   - [Definir las entradas meteorológicas](#definir-las-entradas-meteorológicas)
+  - [Preparar la marca de agua del SMN](#preparar-la-marca-de-agua-del-smn)
   - [Iniciar el sistema](#iniciar-el-sistema)
 - [Verificación](#verificación)
 - [Operación habitual](#operación-habitual)
@@ -161,6 +162,18 @@ Después de completar el `.env`, se deben regenerar las configuraciones:
 make setup
 ```
 
+### Preparar la marca de agua del SMN
+
+Guardar el archivo `trama_smn.png` recibido por correo en una carpeta accesible del servidor. En el `.env` de la raíz, indicar la ruta absoluta de esa carpeta:
+
+```dotenv
+WATERMARK_DIR=/ruta/a/la/carpeta
+```
+
+La variable apunta a la carpeta que contiene la imagen, no al archivo. La imagen debe conservar el nombre `trama_smn.png`.
+
+Si falta la imagen, el servicio inicia y genera avisos sin marca de agua; registra el error y devuelve la advertencia `watermark_missing` al crear el aviso.
+
 ### Iniciar el sistema
 
 Beta-1 se inicia con:
@@ -192,6 +205,8 @@ docker compose -f compose.beta-1.yaml logs -f producer
 ```
 
 Cada fuente informa su modo, el directorio interno y si encontró archivos. Un tick sano que sólo publica ABI no demuestra que las entradas locales estén bien montadas. GLM, radar y WRF deben aparecer en ese resumen cuando sus carpetas contienen datos.
+
+Al generar un aviso de prueba, comprobar que la marca de agua del SMN aparezca en las imágenes resultantes.
 
 ## Operación habitual
 

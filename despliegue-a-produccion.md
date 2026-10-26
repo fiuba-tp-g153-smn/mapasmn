@@ -9,6 +9,7 @@ El perfil de producción ejecuta los cuatro componentes de MapaSMN con el catál
 - [2. Preparar la configuración](#2-preparar-la-configuración)
   - [MySQL incluido](#mysql-incluido)
   - [MySQL del SMN](#mysql-del-smn)
+  - [Marca de agua del SMN](#marca-de-agua-del-smn)
 - [3. Indicar dónde están los datos meteorológicos](#3-indicar-dónde-están-los-datos-meteorológicos)
   - [Rutas del despliegue original](#rutas-del-despliegue-original)
 - [4. Iniciar el sistema](#4-iniciar-el-sistema)
@@ -115,6 +116,18 @@ La lectura de `taviso` utiliza por defecto el mismo host, puerto y base. Si el o
 
 En ambos casos se ejecuta `make prod`. El modo externo excluye el contenedor MySQL y su volumen del despliegue y no ejecuta migraciones sobre la base institucional. El cambio de instancia no traslada los datos existentes: se realiza con la instalación detenida, un respaldo y el procedimiento de transferencia acordado con el administrador de la base.
 
+### Marca de agua del SMN
+
+Guardar el archivo `trama_smn.png` recibido por correo en una carpeta accesible del servidor. En el `.env` de la raíz, indicar la ruta absoluta de esa carpeta:
+
+```dotenv
+WATERMARK_DIR=/ruta/a/la/carpeta
+```
+
+La variable apunta a la carpeta que contiene la imagen, no al archivo. La imagen debe conservar el nombre `trama_smn.png`.
+
+Si falta la imagen, el servicio inicia y genera avisos sin marca de agua; registra el error y devuelve `watermark_missing` al crear el aviso.
+
 ## 3. Indicar dónde están los datos meteorológicos
 
 Para generar las capas del mapa, MapaSMN necesita acceder a los archivos meteorológicos originales. Con la configuración incluida, obtiene automáticamente GOES-19 ABI desde NOAA, ECMWF desde Open Data y GFS desde NOMADS.
@@ -194,7 +207,7 @@ Desde un puesto de operación se abre `http://<servidor>:6010` y se comprueba:
 
 1. La visualización y animación de productos recientes de cada fuente conectada.
 2. La actualización de las estaciones meteorológicas y de las pestañas del panel de estado.
-3. La intersección de un polígono y la generación de un aviso de ensayo, con sus imágenes y persistencia, antes de habilitar su integración al circuito oficial.
+3. La intersección de un polígono y la generación de un aviso de ensayo, con sus imágenes, marca de agua del SMN y persistencia, antes de habilitar su integración al circuito oficial.
 
 Las rutas `/health` indican que los procesos responden. La disponibilidad de datos se verifica con `/sync/status`, los trabajos terminados y las capas del mapa. `alerts-service` puede responder HTTP mientras recupera capas faltantes, por lo que la prueba de intersección forma parte de esta verificación.
 
